@@ -11,7 +11,7 @@
 | **Durée de réalisation** | 7 heures (hackathon) |
 | **Équipe** | 4 personnes |
 | **Outil de développement** | Cursor (IA) |
-| **Langue de l'interface** | Français |
+| **Langue de l'interface** | Français, Anglais |
 | **Devise de référence** | FCFA (XAF) |
 
 ---
@@ -47,7 +47,7 @@ Aujourd'hui, ces transformations sont faites **manuellement dans Excel** ou via 
 
 ### 1.4 Bonus IA
 
-Un **assistant IA** qui génère le code de transformation complexe (**requête SQL** ou **script de nettoyage Python/pandas**) à partir d'une **description en langage naturel** (en français), par exemple :
+Un **assistant IA** qui génère le code de transformation complexe (**requête SQL** ou **script de nettoyage Python/pandas**) à partir d'une **description en langage naturel** (en français, anglais), par exemple :
 > « Garde uniquement les transactions MoMo supérieures à 500 000 FCFA des 30 derniers jours et regroupe-les par agence. »
 
 ---
@@ -70,7 +70,7 @@ Livrer une application web fonctionnelle permettant de **construire visuellement
 - [ ] Construire visuellement un pipeline d'au moins 3 nœuds.
 - [ ] Exécuter et afficher un tableau de résultats correct.
 - [ ] Exporter le résultat.
-- [ ] (Bonus) Générer une transformation via une phrase en français.
+- [ ] (Bonus) Générer une transformation via une phrase en français et anglais.
 
 ---
 
@@ -99,7 +99,7 @@ Livrer une application web fonctionnelle permettant de **construire visuellement
 | IA1 | Champ de saisie en langage naturel → génération de **SQL** | **Bonus** |
 | IA2 | Génération de **script pandas** de nettoyage | **Bonus** |
 | IA3 | Insertion du code généré comme nœud « Transformation personnalisée » | **Bonus** |
-| IA4 | Explication en français du code généré | **Bonus** |
+| IA4 | Explication en français ou anglais du code généré | **Bonus** |
 
 ### 3.3 Hors périmètre (explicitement exclu pour la version 7h)
 
@@ -171,7 +171,7 @@ Livrer une application web fonctionnelle permettant de **construire visuellement
 
 ### 5.6 Assistant IA (Bonus)
 
-- Zone de texte : description en français + schéma des colonnes disponibles envoyé en contexte.
+- Zone de texte : description en français ou anglais + schéma des colonnes disponibles envoyé en contexte.
 - Sortie : code (SQL ou pandas) + courte explication.
 - Bouton « Insérer comme nœud » et « Copier ».
 - Garde-fous : exécution en lecture seule, pas d'instructions destructrices (`DROP`, `DELETE`, `UPDATE` bloquées).
@@ -184,7 +184,7 @@ Livrer une application web fonctionnelle permettant de **construire visuellement
 |---|---|
 | **Performance** | Traiter des fichiers jusqu'à ~100 000 lignes / 50 Mo en local sans bloquer l'UI. |
 | **Contexte réseau** | Pensé pour une **bande passante faible/instable** : traitement majoritairement côté serveur local, pas de dépendance lourde. |
-| **Localisation** | Interface 100 % en français ; formats FCFA, dates `JJ/MM/AAAA`, séparateurs francophones. |
+| **Localisation** | Interface 100 % en français ou anglais ; formats FCFA, dates `JJ/MM/AAAA`, séparateurs francophones. |
 | **Utilisabilité** | Utilisable par un analyste non-développeur ; 3 clics max pour un pipeline simple. |
 | **Robustesse** | Aucun crash sur fichier malformé : message d'erreur clair. |
 | **Sécurité (données sensibles)** | Données traitées localement, pas de fuite vers des services tiers (sauf appel IA explicite et anonymisé). |
