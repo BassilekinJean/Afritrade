@@ -9,6 +9,7 @@ export interface FieldSpec {
   placeholder?: string;
   help?: string;
   options?: string[];
+  accept?: string;
 }
 
 export interface NodeSpec {
@@ -28,11 +29,11 @@ export const NODE_SPECS: NodeSpec[] = [
     label: "Source CSV",
     category: "source",
     icon: "CSV",
-    color: "#34d399",
+    color: "#10b981",
     description: "Importer un fichier CSV",
     defaultConfig: { delimiter: "," },
     fields: [
-      { key: "file", label: "Fichier CSV", type: "file", help: "Importez un .csv depuis votre poste." },
+      { key: "file", label: "Fichier CSV", type: "file", accept: ".csv,.txt", help: "Importez un .csv depuis votre poste." },
       { key: "delimiter", label: "Délimiteur", type: "text", placeholder: "," },
       { key: "content", label: "Ou collez le CSV", type: "textarea", placeholder: "id,montant\n1,1200" },
     ],
@@ -42,21 +43,46 @@ export const NODE_SPECS: NodeSpec[] = [
     label: "Source JSON",
     category: "source",
     icon: "JSON",
-    color: "#34d399",
+    color: "#10b981",
     description: "Importer un fichier JSON",
     defaultConfig: {},
     fields: [
-      { key: "file", label: "Fichier JSON", type: "file", help: "Importez un .json (tableau d'objets)." },
+      { key: "file", label: "Fichier JSON", type: "file", accept: ".json", help: "Importez un .json (tableau d'objets)." },
       { key: "content", label: "Ou collez le JSON", type: "textarea", placeholder: '[{"id":1,"montant":1200}]' },
     ],
   },
   {
-    kind: "source_sql",
-    label: "Source SQL",
+    kind: "source_sql_file",
+    label: "Source SQL (fichier)",
     category: "source",
     icon: "SQL",
-    color: "#34d399",
-    description: "Lire une base via SQLAlchemy",
+    color: "#10b981",
+    description: "Importer un dump .sql ou une base SQLite",
+    defaultConfig: {},
+    fields: [
+      {
+        key: "file",
+        label: "Fichier SQL / base SQLite",
+        type: "file",
+        accept: ".sql,.sqlite,.sqlite3,.db",
+        help: "Dump .sql (CREATE/INSERT) ou base .sqlite / .db exportée du core banking.",
+      },
+      {
+        key: "table",
+        label: "Table à charger",
+        type: "text",
+        placeholder: "(1ʳᵉ table par défaut)",
+        help: "Nom de la table à extraire si le fichier en contient plusieurs.",
+      },
+    ],
+  },
+  {
+    kind: "source_sql",
+    label: "Source SQL (connexion)",
+    category: "source",
+    icon: "DB",
+    color: "#10b981",
+    description: "Lire une base distante via SQLAlchemy",
     defaultConfig: { connectionString: "", query: "" },
     fields: [
       {
@@ -74,7 +100,7 @@ export const NODE_SPECS: NodeSpec[] = [
     label: "Filtrer",
     category: "transform",
     icon: "WHERE",
-    color: "#38bdf8",
+    color: "#3b82f6",
     description: "Filtrer les lignes (df.query)",
     defaultConfig: { expression: "" },
     fields: [
@@ -92,7 +118,7 @@ export const NODE_SPECS: NodeSpec[] = [
     label: "Sélectionner colonnes",
     category: "transform",
     icon: "COLS",
-    color: "#38bdf8",
+    color: "#3b82f6",
     description: "Conserver certaines colonnes",
     defaultConfig: { columns: [] },
     fields: [{ key: "columns", label: "Colonnes à garder", type: "columns" }],
@@ -102,7 +128,7 @@ export const NODE_SPECS: NodeSpec[] = [
     label: "Renommer",
     category: "transform",
     icon: "A→B",
-    color: "#38bdf8",
+    color: "#3b82f6",
     description: "Renommer des colonnes",
     defaultConfig: { mapping: {} },
     fields: [{ key: "mapping", label: "Ancien → Nouveau", type: "keyvalue" }],
@@ -112,7 +138,7 @@ export const NODE_SPECS: NodeSpec[] = [
     label: "Trier",
     category: "transform",
     icon: "SORT",
-    color: "#38bdf8",
+    color: "#3b82f6",
     description: "Trier par colonne",
     defaultConfig: { by: "", ascending: true },
     fields: [
@@ -125,7 +151,7 @@ export const NODE_SPECS: NodeSpec[] = [
     label: "Agréger",
     category: "transform",
     icon: "Σ",
-    color: "#38bdf8",
+    color: "#3b82f6",
     description: "Regrouper et agréger",
     defaultConfig: { groupBy: [], aggregations: {} },
     fields: [
@@ -143,7 +169,7 @@ export const NODE_SPECS: NodeSpec[] = [
     label: "Dédoublonner",
     category: "transform",
     icon: "UNIQ",
-    color: "#38bdf8",
+    color: "#3b82f6",
     description: "Supprimer les doublons",
     defaultConfig: { columns: [] },
     fields: [{ key: "columns", label: "Clés (vide = toutes)", type: "columns" }],
@@ -153,7 +179,7 @@ export const NODE_SPECS: NodeSpec[] = [
     label: "Transformation SQL",
     category: "transform",
     icon: "SQL",
-    color: "#a78bfa",
+    color: "#6366f1",
     description: "Requête SQL sur l'entrée (table « input »)",
     defaultConfig: { query: "SELECT * FROM input" },
     fields: [{ key: "query", label: "Requête SQL", type: "code", placeholder: "SELECT * FROM input WHERE montant > 1000" }],
@@ -163,7 +189,7 @@ export const NODE_SPECS: NodeSpec[] = [
     label: "Code Python",
     category: "transform",
     icon: "PY",
-    color: "#a78bfa",
+    color: "#6366f1",
     description: "Transformation pandas personnalisée",
     defaultConfig: { code: "" },
     fields: [
@@ -181,7 +207,7 @@ export const NODE_SPECS: NodeSpec[] = [
     label: "Sortie",
     category: "output",
     icon: "OUT",
-    color: "#fbbf24",
+    color: "#c9a24b",
     description: "Résultat final du pipeline",
     defaultConfig: {},
     fields: [],

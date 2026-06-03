@@ -22,15 +22,22 @@ export interface UploadResult {
   kind: string;
   size: number;
   delimiter?: string | null;
+  table?: string | null;
   rowCount?: number;
   columns?: string[];
   preview?: TablePreview;
 }
 
-export async function uploadSource(file: File, delimiter?: string): Promise<UploadResult> {
+export interface UploadOptions {
+  delimiter?: string;
+  table?: string;
+}
+
+export async function uploadSource(file: File, opts: UploadOptions = {}): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file);
-  if (delimiter) form.append("delimiter", delimiter);
+  if (opts.delimiter) form.append("delimiter", opts.delimiter);
+  if (opts.table) form.append("table", opts.table);
   const res = await fetch(`${BASE}/sources/upload`, {
     method: "POST",
     body: form,

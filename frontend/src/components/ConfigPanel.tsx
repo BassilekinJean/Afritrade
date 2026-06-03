@@ -289,7 +289,7 @@ function FileField({
     setErr(null);
     setPreview(null);
     try {
-      const res = await uploadSource(file, config.delimiter);
+      const res = await uploadSource(file, { delimiter: config.delimiter, table: config.table });
       onChange("datasetId", res.datasetId);
       onChange("__filename", res.filename);
       onChange("__columns", res.columns ?? []);
@@ -312,7 +312,7 @@ function FileField({
         <input
           type="file"
           className="hidden"
-          accept=".csv,.json,.txt"
+          accept={field.accept ?? ".csv,.json,.txt"}
           onChange={(e) => e.target.files?.[0] && handle(e.target.files[0])}
         />
         {busy ? "Import en cours…" : config.__filename ? `✓ ${config.__filename}` : "Cliquez pour importer"}

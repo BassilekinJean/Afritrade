@@ -1,7 +1,7 @@
 """API DataPipe — ETL visuel pour pipelines bancaires.
 
 Endpoints :
-  POST /api/sources/upload   -> importe un fichier (CSV/JSON), renvoie un id + aperçu
+  POST /api/sources/upload   -> importe un fichier (CSV/JSON/SQL/SQLite), renvoie un id + aperçu
   POST /api/pipeline/run     -> exécute le graphe nodal et renvoie les aperçus
   POST /api/ai/generate      -> génère du code de transformation depuis une description
   GET  /api/health           -> état du service
@@ -9,6 +9,7 @@ Endpoints :
 
 from __future__ import annotations
 
+import base64
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -17,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import ai
+from etl.extract import SQLITE_B64_PREFIX
 from pipeline import PipelineError, execute_graph, preview_source, store
 
 app = FastAPI(title="DataPipe API", version="1.0.0")
@@ -67,27 +69,48 @@ def health() -> Dict[str, Any]:
     return {"status": "ok", "datasets": len(DATASETS), "aiKey": bool(__import__("os").environ.get("OPENAI_API_KEY"))}
 
 
+def _detect_kind(filename: str) -> str:
+    """Déduit le type de source à partir de l'extension du fichier."""
+    lower = filename.lower()
+    if lower.endswith(".json"):
+        return "json"
+    if lower.endswith(".sql"):
+        return "sql"
+    if lower.endswith((".sqlite", ".sqlite3", ".db")):
+        return "sqlite"
+    return "csv"
+
+
 @app.post("/api/sources/upload")
 async def upload_source(
     file: UploadFile = File(...),
     delimiter: Optional[str] = Form(default=None),
+    table: Optional[str] = Form(default=None),
 ) -> Dict[str, Any]:
-    """Importe un fichier source (CSV / JSON).
+    """Importe un fichier source (CSV / JSON / SQL / SQLite).
 
     Le contenu est conservé en mémoire (réutilisé tel quel par le pipeline) et,
     en plus, immédiatement extrait + standardisé pour renvoyer un aperçu
     structuré (colonnes, types inférés, premières lignes harmonisées).
+
+    Les bases SQLite (`.sqlite` / `.db`) étant binaires, elles sont stockées
+    encodées en base64 (préfixe interne) pour rester compatibles avec le même
+    stockage texte que les autres sources.
     """
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Fichier vide.")
-    try:
-        content = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        content = raw.decode("latin-1")
 
     filename = file.filename or "source"
-    kind = "json" if filename.lower().endswith(".json") else "csv"
+    kind = _detect_kind(filename)
+
+    if kind == "sqlite":
+        content = SQLITE_B64_PREFIX + base64.b64encode(raw).decode("ascii")
+    else:
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            content = raw.decode("latin-1")
 
     dataset_id = str(uuid.uuid4())
     DATASETS[dataset_id] = content
@@ -96,11 +119,12 @@ async def upload_source(
         "datasetId": dataset_id,
         "filename": filename,
         "kind": kind,
-        "size": len(content),
+        "size": len(raw),
         "delimiter": delimiter,
+        "table": table,
     }
     try:
-        preview = preview_source(content, kind, delimiter=delimiter)
+        preview = preview_source(content, kind, delimiter=delimiter, table=table)
         response["preview"] = preview
         response["columns"] = preview.get("columns", [])
         response["rowCount"] = preview.get("rowCount", 0)

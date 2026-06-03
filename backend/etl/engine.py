@@ -273,6 +273,7 @@ def preview_source(
     kind: str,
     delimiter: Optional[str] = None,
     max_rows: int = 20,
+    table: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Extrait puis standardise un contenu de fichier et renvoie un aperçu.
 
@@ -280,10 +281,18 @@ def preview_source(
     colonnes détectées, les types inférés et les premières lignes harmonisées
     (dates JJ-MM-AAAA, nombres normalisés), avant même de lancer le pipeline.
     """
-    ntype = "source_json" if (kind or "").lower() == "json" else "source_csv"
+    kind_l = (kind or "").lower()
     cfg: Dict[str, Any] = {"content": content}
-    if delimiter:
-        cfg["delimiter"] = delimiter
+    if kind_l in ("sql", "sqlite"):
+        ntype = "source_sql_file"
+        if table:
+            cfg["table"] = table
+    elif kind_l == "json":
+        ntype = "source_json"
+    else:
+        ntype = "source_csv"
+        if delimiter:
+            cfg["delimiter"] = delimiter
 
     raw = EXTRACTORS[ntype](cfg, {})
     clean, report = standardize(raw)

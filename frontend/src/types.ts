@@ -2,6 +2,7 @@ export type NodeKind =
   | "source_csv"
   | "source_json"
   | "source_sql"
+  | "source_sql_file"
   | "filter"
   | "select"
   | "rename"

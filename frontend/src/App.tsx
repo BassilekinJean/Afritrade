@@ -265,29 +265,52 @@ function Flow() {
       {/* Header */}
       <header className="flex items-center justify-between border-b border-edge bg-panel px-5 py-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-accent to-accent2 text-lg font-black text-ink">
-            ⇄
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10 text-accent ring-1 ring-accent/30">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="5" cy="6" r="2.2" />
+              <circle cx="5" cy="18" r="2.2" />
+              <circle cx="19" cy="12" r="2.2" />
+              <path d="M7 6.9 16.8 11M7 17.1 16.8 13" />
+            </svg>
           </div>
           <div>
-            <h1 className="text-base font-bold leading-tight text-slate-100">DataPipe</h1>
-            <p className="text-[11px] text-slate-500">ETL visuel pour pipelines bancaires</p>
+            <h1 className="text-base font-semibold leading-tight tracking-tight text-slate-100">
+              DataPipe
+            </h1>
+            <p className="text-[11px] text-slate-500">Plateforme ETL pour données bancaires</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {runError && (
+            <span className="max-w-[280px] truncate rounded-md border border-bad/30 bg-bad/10 px-2.5 py-1 text-xs text-bad">
+              {runError}
+            </span>
+          )}
           <span
-            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] ${
-              aiKey ? "bg-good/15 text-good" : "bg-warn/15 text-warn"
+            className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium ${
+              aiKey
+                ? "border-good/30 bg-good/10 text-good"
+                : "border-edge bg-panel2 text-slate-400"
             }`}
           >
-            ● IA {aiKey ? "OpenAI" : "locale"}
+            <span className={`h-1.5 w-1.5 rounded-full ${aiKey ? "bg-good" : "bg-slate-500"}`} />
+            Assistant {aiKey ? "OpenAI" : "local"}
           </span>
-          {runError && <span className="text-xs text-bad">{runError}</span>}
           <button
             onClick={run}
             disabled={running}
-            className="rounded-lg bg-gradient-to-r from-accent to-accent2 px-4 py-2 text-sm font-bold text-ink transition hover:opacity-90 disabled:opacity-40"
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-accent2 disabled:opacity-40"
           >
-            {running ? "Exécution…" : "▶ Exécuter le pipeline"}
+            {running ? (
+              "Exécution…"
+            ) : (
+              <>
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                Exécuter le pipeline
+              </>
+            )}
           </button>
         </div>
       </header>
@@ -334,11 +357,11 @@ function Flow() {
             defaultEdgeOptions={{ animated: true }}
             proOptions={{ hideAttribution: true }}
           >
-            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#243049" />
+            <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#1f2a44" />
             <Controls />
             <MiniMap
-              nodeColor={(n) => SPEC_BY_KIND[(n.data as PipeNodeData).kind]?.color ?? "#38bdf8"}
-              maskColor="rgba(11,17,32,0.7)"
+              nodeColor={(n) => SPEC_BY_KIND[(n.data as PipeNodeData).kind]?.color ?? "#3b82f6"}
+              maskColor="rgba(10,15,28,0.75)"
               className="!bg-panel2"
             />
           </ReactFlow>
@@ -359,7 +382,10 @@ function Flow() {
                 onClick={deleteFromContextMenu}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-bad transition hover:bg-bad/10"
               >
-                🗑 Supprimer
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
+                </svg>
+                Supprimer
               </button>
             </div>
           )}
@@ -378,7 +404,7 @@ function Flow() {
                     : "text-slate-500 hover:text-slate-300"
                 }`}
               >
-                {t === "config" ? "Configuration" : t === "preview" ? "Aperçu" : "✨ Assistant IA"}
+                {t === "config" ? "Configuration" : t === "preview" ? "Aperçu" : "Assistant"}
               </button>
             ))}
           </div>

@@ -42,7 +42,7 @@ export default function AIAssistant({ upstreamColumns, aiKey, onApply }: Props) 
     <div className="flex h-full flex-col">
       <div className="border-b border-edge px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="rounded-md bg-gradient-to-r from-accent to-accent2 px-2 py-0.5 text-[10px] font-bold text-ink">
+          <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent ring-1 ring-accent/30">
             IA
           </span>
           <span className="text-sm font-semibold text-slate-100">Assistant de transformation</span>
@@ -98,7 +98,7 @@ export default function AIAssistant({ upstreamColumns, aiKey, onApply }: Props) 
         <button
           onClick={run}
           disabled={loading || !description.trim()}
-          className="w-full rounded-lg bg-gradient-to-r from-accent to-accent2 px-3 py-2 text-sm font-semibold text-ink transition hover:opacity-90 disabled:opacity-40"
+          className="w-full rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white transition hover:bg-accent2 disabled:opacity-40"
         >
           {loading ? "Génération…" : "Générer le code"}
         </button>
@@ -121,7 +121,7 @@ export default function AIAssistant({ upstreamColumns, aiKey, onApply }: Props) 
             <div className="flex gap-2">
               <button
                 onClick={() => onApply(result.mode === "sql" ? "sql" : "custom", result.code)}
-                className="flex-1 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-ink transition hover:opacity-90"
+                className="flex-1 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white transition hover:bg-accent2"
               >
                 + Créer un node avec ce code
               </button>
