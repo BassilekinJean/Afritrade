@@ -29,6 +29,19 @@ body {
   stroke-width: 2;
 }
 
+/* Lien sélectionné : mis en évidence avant suppression au clavier. */
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus .react-flow__edge-path,
+.react-flow__edge:focus-visible .react-flow__edge-path {
+  stroke: #f43f5e;
+  stroke-width: 3;
+}
+
+/* Zone cliquable plus large pour sélectionner facilement un lien. */
+.react-flow__edge-interaction {
+  stroke-width: 18;
+}
+
 .react-flow__handle {
   width: 10px;
   height: 10px;
