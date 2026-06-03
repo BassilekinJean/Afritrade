@@ -2,7 +2,7 @@ import { useState } from "react";
 import { SPEC_BY_KIND, type FieldSpec } from "../nodeCatalog";
 import { uploadSource } from "../api";
 import type { Node } from "reactflow";
-import type { PipeNodeData } from "../types";
+import type { PipeNodeData, TablePreview } from "../types";
 
 interface Props {
   node: Node<PipeNodeData> | null;
@@ -282,14 +282,22 @@ function FileField({
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [preview, setPreview] = useState<TablePreview | null>(null);
 
   const handle = async (file: File) => {
     setBusy(true);
     setErr(null);
+    setPreview(null);
     try {
-      const res = await uploadSource(file);
+      const res = await uploadSource(file, config.delimiter);
       onChange("datasetId", res.datasetId);
       onChange("__filename", res.filename);
+      onChange("__columns", res.columns ?? []);
+      onChange("__rowCount", res.rowCount ?? 0);
+      if (res.preview) {
+        if (res.preview.error) setErr(res.preview.error);
+        else setPreview(res.preview);
+      }
     } catch (e: any) {
       setErr(e.message || "Échec de l'import");
     } finally {
@@ -311,6 +319,49 @@ function FileField({
       </label>
       {err && <p className="mt-1 text-[11px] text-bad">{err}</p>}
       {field.help && <p className="mt-1 text-[11px] text-slate-500">{field.help}</p>}
+      {preview && <ImportPreview preview={preview} />}
+    </div>
+  );
+}
+
+function ImportPreview({ preview }: { preview: TablePreview }) {
+  const rows = preview.rows.slice(0, 5);
+  return (
+    <div className="mt-2 rounded-lg border border-edge bg-panel">
+      <div className="flex items-center justify-between border-b border-edge px-2.5 py-1.5 text-[11px] text-slate-400">
+        <span className="font-medium text-good">✓ Importé &amp; standardisé</span>
+        <span>
+          {preview.rowCount} ligne{preview.rowCount > 1 ? "s" : ""} · {preview.columns.length} colonnes
+        </span>
+      </div>
+      <div className="max-h-44 overflow-auto">
+        <table className="w-full border-collapse text-left text-[11px]">
+          <thead className="sticky top-0 bg-panel2">
+            <tr>
+              {preview.columns.map((col) => (
+                <th key={col} className="whitespace-nowrap border-b border-edge px-2 py-1 font-semibold text-slate-300">
+                  {col}
+                  <span className="ml-1 font-normal text-slate-600">{preview.dtypes[col]}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} className="odd:bg-panel/40">
+                {preview.columns.map((col) => (
+                  <td key={col} className="whitespace-nowrap border-b border-edge/50 px-2 py-1 font-mono text-slate-400">
+                    {row[col] === null || row[col] === undefined ? "∅" : String(row[col])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {preview.rowCount > rows.length && (
+        <div className="px-2.5 py-1 text-[10px] text-slate-500">Aperçu des {rows.length} premières lignes.</div>
+      )}
     </div>
   );
 }

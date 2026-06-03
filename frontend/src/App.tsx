@@ -96,17 +96,25 @@ function Flow() {
     [nodes, selectedId]
   );
 
-  // Colonnes disponibles en amont du node sélectionné (depuis le dernier run).
+  // Colonnes disponibles en amont du node sélectionné.
+  // On privilégie l'aperçu du dernier run, puis les colonnes détectées à
+  // l'import d'une source en amont (clé __columns), afin que les sélecteurs de
+  // colonnes soient utilisables immédiatement, avant même d'exécuter le pipeline.
   const upstreamColumns = useMemo(() => {
     if (!selectedNode) return [];
     const parents = edges.filter((e) => e.target === selectedNode.id).map((e) => e.source);
     for (const p of parents) {
       const pv = previews[p];
       if (pv && pv.columns?.length) return pv.columns;
+      const pnode = nodes.find((n) => n.id === p);
+      const cols = pnode?.data.config?.__columns;
+      if (Array.isArray(cols) && cols.length) return cols;
     }
     const own = previews[selectedNode.id];
-    return own?.columns ?? [];
-  }, [selectedNode, edges, previews]);
+    if (own?.columns?.length) return own.columns;
+    const ownCols = selectedNode.data.config?.__columns;
+    return Array.isArray(ownCols) ? ownCols : [];
+  }, [selectedNode, edges, previews, nodes]);
 
   const onConnect = useCallback(
     (conn: Connection) => setEdges((eds) => addEdge({ ...conn, id: `e${Date.now()}` }, eds)),

@@ -1,4 +1,4 @@
-import type { AIResponse, RunResult } from "./types";
+import type { AIResponse, RunResult, TablePreview } from "./types";
 
 const BASE = "/api";
 
@@ -16,15 +16,21 @@ async function jsonOrThrow(res: Response) {
   return res.json();
 }
 
-export async function uploadSource(file: File): Promise<{
+export interface UploadResult {
   datasetId: string;
   filename: string;
   kind: string;
   size: number;
-  preview: string;
-}> {
+  delimiter?: string | null;
+  rowCount?: number;
+  columns?: string[];
+  preview?: TablePreview;
+}
+
+export async function uploadSource(file: File, delimiter?: string): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file);
+  if (delimiter) form.append("delimiter", delimiter);
   const res = await fetch(`${BASE}/sources/upload`, {
     method: "POST",
     body: form,

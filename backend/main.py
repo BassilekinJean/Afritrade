@@ -12,12 +12,12 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import ai
-from pipeline import PipelineError, execute_graph
+from pipeline import PipelineError, execute_graph, preview_source, store
 
 app = FastAPI(title="DataPipe API", version="1.0.0")
 
@@ -68,24 +68,51 @@ def health() -> Dict[str, Any]:
 
 
 @app.post("/api/sources/upload")
-async def upload_source(file: UploadFile = File(...)) -> Dict[str, Any]:
+async def upload_source(
+    file: UploadFile = File(...),
+    delimiter: Optional[str] = Form(default=None),
+) -> Dict[str, Any]:
+    """Importe un fichier source (CSV / JSON).
+
+    Le contenu est conservé en mémoire (réutilisé tel quel par le pipeline) et,
+    en plus, immédiatement extrait + standardisé pour renvoyer un aperçu
+    structuré (colonnes, types inférés, premières lignes harmonisées).
+    """
     raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Fichier vide.")
     try:
         content = raw.decode("utf-8")
     except UnicodeDecodeError:
         content = raw.decode("latin-1")
 
+    filename = file.filename or "source"
+    kind = "json" if filename.lower().endswith(".json") else "csv"
+
     dataset_id = str(uuid.uuid4())
     DATASETS[dataset_id] = content
 
-    kind = "json" if (file.filename or "").lower().endswith(".json") else "csv"
-    return {
+    response: Dict[str, Any] = {
         "datasetId": dataset_id,
-        "filename": file.filename,
+        "filename": filename,
         "kind": kind,
         "size": len(content),
-        "preview": content[:2000],
+        "delimiter": delimiter,
     }
+    try:
+        preview = preview_source(content, kind, delimiter=delimiter)
+        response["preview"] = preview
+        response["columns"] = preview.get("columns", [])
+        response["rowCount"] = preview.get("rowCount", 0)
+    except PipelineError as exc:
+        response["preview"] = {"error": str(exc)}
+        response["columns"] = []
+        response["rowCount"] = 0
+    except Exception as exc:  # noqa: BLE001
+        response["preview"] = {"error": f"Lecture du fichier impossible : {exc}"}
+        response["columns"] = []
+        response["rowCount"] = 0
+    return response
 
 
 @app.post("/api/pipeline/run")
@@ -106,3 +133,16 @@ def ai_generate(req: AIRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Description vide.")
     mode = req.mode if req.mode in ("pandas", "sql") else "pandas"
     return ai.generate_transformation(req.description, req.columns, mode)
+
+
+@app.get("/api/etl/staging")
+def etl_staging() -> Dict[str, Any]:
+    """Inspecte les trois bases tampon (RAW / CLEAN / WAREHOUSE)."""
+    return store.summary()
+
+
+@app.post("/api/etl/reset")
+def etl_reset() -> Dict[str, Any]:
+    """Vide les bases tampon (utile pour repartir d'un état propre)."""
+    store.reset()
+    return {"status": "ok", "message": "Bases tampon réinitialisées."}
