@@ -17,7 +17,6 @@ import tempfile
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-from sqlalchemy import create_engine, text
 
 from .errors import PipelineError
 
@@ -72,28 +71,6 @@ def extract_json(config: Dict[str, Any], datasets: Dict[str, str]) -> pd.DataFra
                 return pd.json_normalize(value)
         return pd.json_normalize(parsed)
     return pd.json_normalize(parsed)
-
-
-def extract_sql(config: Dict[str, Any], datasets: Dict[str, str]) -> pd.DataFrame:
-    conn = (config.get("connectionString") or "").strip()
-    query = (config.get("query") or "").strip()
-    if not conn:
-        raise PipelineError("Chaîne de connexion SQL manquante.")
-    if not query:
-        raise PipelineError("Requête SQL manquante.")
-    if _is_destructive(query):
-        raise PipelineError("Seules les requêtes de lecture (SELECT) sont autorisées en source.")
-    try:
-        engine = create_engine(conn)
-        with engine.connect() as connection:
-            return pd.read_sql(text(query), connection)
-    except Exception as exc:  # noqa: BLE001
-        raise PipelineError(f"Connexion / requête SQL échouée : {exc}") from exc
-
-
-def _is_destructive(query: str) -> bool:
-    lowered = query.lower()
-    return any(kw in lowered for kw in ("drop ", "delete ", "update ", "insert ", "alter ", "truncate "))
 
 
 # --------------------------------------------------------------------------- #
@@ -188,6 +165,5 @@ def extract_sql_file(config: Dict[str, Any], datasets: Dict[str, str]) -> pd.Dat
 EXTRACTORS = {
     "source_csv": extract_csv,
     "source_json": extract_json,
-    "source_sql": extract_sql,
     "source_sql_file": extract_sql_file,
 }

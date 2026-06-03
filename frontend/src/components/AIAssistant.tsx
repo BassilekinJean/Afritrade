@@ -9,10 +9,10 @@ interface Props {
 }
 
 const EXAMPLES = [
-  "Garder uniquement les transactions de montant supérieur à 10000",
+  "Garde les transactions supérieures à 500000 FCFA et regroupe-les par agence",
   "Masquer les numéros de compte pour le RGPD",
   "Marquer les montants suspects (détection de fraude)",
-  "Calculer le total des montants par compte",
+  "Calculer le total des montants par agence",
   "Supprimer les doublons et les lignes vides",
 ];
 
@@ -72,7 +72,7 @@ export default function AIAssistant({ upstreamColumns, aiKey, onApply }: Props) 
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Ex : conserver les virements de plus de 5000 € et masquer les IBAN"
+          placeholder="Ex : garde les transactions > 500000 FCFA et regroupe par agence"
           rows={3}
           className="w-full rounded-lg border border-edge bg-panel px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent"
         />

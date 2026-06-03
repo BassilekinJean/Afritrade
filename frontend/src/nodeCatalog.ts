@@ -77,25 +77,6 @@ export const NODE_SPECS: NodeSpec[] = [
     ],
   },
   {
-    kind: "source_sql",
-    label: "Source SQL (connexion)",
-    category: "source",
-    icon: "DB",
-    color: "#10b981",
-    description: "Lire une base distante via SQLAlchemy",
-    defaultConfig: { connectionString: "", query: "" },
-    fields: [
-      {
-        key: "connectionString",
-        label: "Chaîne de connexion",
-        type: "text",
-        placeholder: "sqlite:////chemin/base.db ou postgresql://user:pwd@host/db",
-        help: "Format SQLAlchemy.",
-      },
-      { key: "query", label: "Requête SQL", type: "code", placeholder: "SELECT * FROM transactions" },
-    ],
-  },
-  {
     kind: "filter",
     label: "Filtrer",
     category: "transform",

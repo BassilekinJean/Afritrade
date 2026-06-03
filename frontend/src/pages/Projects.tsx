@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../auth/useAuth";
+import { useAuth } from "../auth-service";
 import {
   createProject,
   deleteProject,
@@ -23,7 +23,7 @@ interface MenuState {
 }
 
 export default function Projects() {
-  const { user, logout } = useAuth();
+  const { user, signOut } = useAuth();
   const navigate = useNavigate();
 
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -97,7 +97,7 @@ export default function Projects() {
                   {user?.email}
                 </div>
                 <button
-                  onClick={logout}
+                  onClick={() => void signOut()}
                   className="w-full px-3 py-2 text-left text-sm text-bad transition hover:bg-panel2"
                 >
                   Se déconnecter

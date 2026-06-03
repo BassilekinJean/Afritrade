@@ -13,6 +13,7 @@ La sortie est toujours du code exploitable par le moteur :
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -21,16 +22,108 @@ from typing import Any, Dict, List, Optional
 
 
 SYSTEM_PROMPT = """Tu es un assistant expert en ingénierie de données pour le secteur bancaire.
-Tu génères du code de transformation de données propre, sûr et commenté.
+Tu génères du code de transformation de données propre, sûr et minimal.
+
+CONTRAINTES STRICTES — à respecter sans exception :
+- Génère UNIQUEMENT du code pandas (mode "pandas") OU une requête SQL (mode "sql").
+- N'effectue AUCUNE entrée/sortie (pas de read_csv, to_csv, to_sql, open, requêtes réseau...).
+- N'importe AUCUNE librairie (pas d'`import`, pas de `__import__`).
+- N'utilise AUCUN code destructeur ni accès système (os, sys, subprocess, eval, exec, __...__).
 
 Règles selon le mode demandé :
-- mode "pandas" : tu écris du code Python utilisant pandas. Une variable `df`
-  (DataFrame) est déjà disponible en entrée. Réassigne `df` avec le résultat.
-  N'importe rien, n'effectue aucune I/O, n'utilise que pandas (`pd`) déjà importé.
-- mode "sql" : tu écris UNE requête SQL (dialecte SQLite) qui lit la table `input`.
+- mode "pandas" : écris du code Python utilisant pandas. Une variable `df`
+  (DataFrame) est déjà disponible en entrée. `pd` (pandas) est déjà importé.
+  Réassigne `df` avec le résultat final (ou définis `result`).
+- mode "sql" : écris UNE SEULE requête SQL en LECTURE (dialecte SQLite) lisant la
+  table `input`. Seuls SELECT / WITH sont autorisés ; jamais DROP, DELETE, UPDATE,
+  INSERT, ALTER, TRUNCATE, CREATE.
 
-Réponds STRICTEMENT en JSON : {"code": "...", "explanation": "..."}.
+Réponds STRICTEMENT en JSON, sans texte autour : {"code": "...", "explanation": "..."}.
 Le champ "explanation" est une phrase courte en français."""
+
+
+# --------------------------------------------------------------------------- #
+#  Garde-fous : validation du code généré
+# --------------------------------------------------------------------------- #
+class CodeValidationError(ValueError):
+    """Le code généré ne respecte pas les règles de sûreté."""
+
+
+# Mots-clés SQL destructeurs / non autorisés (requêtes de lecture uniquement).
+_FORBIDDEN_SQL = (
+    "drop", "delete", "update", "insert", "alter", "truncate",
+    "create", "replace", "grant", "revoke", "attach", "detach", "pragma",
+)
+
+# Noms interdits dans le code pandas (fonctions dangereuses).
+_FORBIDDEN_NAMES = {
+    "eval", "exec", "compile", "open", "input", "__import__",
+    "globals", "locals", "vars", "getattr", "setattr", "delattr",
+    "exit", "quit",
+}
+
+# Appels de méthodes interdits (I/O, accès système).
+_FORBIDDEN_CALLS = {
+    "to_csv", "to_sql", "to_excel", "to_json", "to_pickle", "to_parquet",
+    "to_feather", "to_hdf", "to_clipboard",
+    "read_csv", "read_sql", "read_json", "read_excel", "read_parquet",
+    "read_pickle", "read_html", "read_clipboard",
+    "system", "popen", "remove", "unlink", "rmtree",
+}
+
+
+def _validate_sql(query: str) -> None:
+    stripped = query.strip()
+    if not stripped:
+        raise CodeValidationError("Requête SQL vide.")
+    lowered = stripped.lower()
+    for kw in _FORBIDDEN_SQL:
+        if re.search(rf"\b{kw}\b", lowered):
+            raise CodeValidationError(f"Mot-clé SQL interdit : {kw.upper()}.")
+    if not (lowered.startswith("select") or lowered.startswith("with")):
+        raise CodeValidationError("Seules les requêtes de lecture (SELECT/WITH) sont autorisées.")
+    # Interdit le chaînage de plusieurs instructions.
+    if ";" in stripped.rstrip(";"):
+        raise CodeValidationError("Une seule requête SELECT est autorisée.")
+
+
+def _validate_pandas(code: str) -> None:
+    if not code.strip():
+        raise CodeValidationError("Code pandas vide.")
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        raise CodeValidationError(f"Code Python invalide : {exc.msg}") from exc
+
+    assigns_df_or_result = False
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            raise CodeValidationError("Les imports sont interdits.")
+        if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+            raise CodeValidationError("Accès aux attributs spéciaux (dunder) interdit.")
+        if isinstance(node, ast.Name) and node.id in _FORBIDDEN_NAMES:
+            raise CodeValidationError(f"Fonction interdite : {node.id}.")
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in _FORBIDDEN_CALLS:
+                raise CodeValidationError(f"Opération d'I/O interdite : {node.func.attr}.")
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in ("df", "result"):
+                    assigns_df_or_result = True
+                # df['col'] = ... ou df.loc[...] = ...
+                if isinstance(target, ast.Subscript):
+                    assigns_df_or_result = True
+
+    if not assigns_df_or_result:
+        raise CodeValidationError("Le code doit réassigner `df` (ou définir `result`).")
+
+
+def validate_generated_code(code: str, mode: str) -> None:
+    """Vérifie qu'un code généré est sûr. Lève CodeValidationError sinon."""
+    if mode == "sql":
+        _validate_sql(code)
+    else:
+        _validate_pandas(code)
 
 
 def generate_transformation(
@@ -42,14 +135,18 @@ def generate_transformation(
     api_key = os.environ.get("OPENAI_API_KEY")
     if api_key:
         try:
-            return _generate_with_openai(description, columns, mode, api_key)
+            result = _generate_with_openai(description, columns, mode, api_key)
+            validate_generated_code(result["code"], result["mode"])
+            return result
         except Exception as exc:  # noqa: BLE001 - on retombe sur l'heuristique
             fallback = _generate_heuristic(description, columns, mode)
             fallback["explanation"] += f" (IA distante indisponible : {exc})"
             fallback["source"] = "heuristic-fallback"
+            validate_generated_code(fallback["code"], fallback["mode"])
             return fallback
     result = _generate_heuristic(description, columns, mode)
     result["source"] = "heuristic"
+    validate_generated_code(result["code"], result["mode"])
     return result
 
 
@@ -106,6 +203,16 @@ def _guess_column(columns: List[str], *keywords: str) -> Optional[str]:
     return None
 
 
+def _mentioned_column(desc: str, columns: List[str], exclude: Optional[str] = None) -> Optional[str]:
+    """Renvoie la 1ʳᵉ colonne disponible explicitement citée dans la description."""
+    for col in columns:
+        if col == exclude:
+            continue
+        if re.search(rf"\b{re.escape(col.lower())}\b", desc):
+            return col
+    return None
+
+
 def _extract_number(text: str) -> Optional[float]:
     match = re.search(r"(\d[\d\s.,]*)", text)
     if not match:
@@ -150,6 +257,14 @@ def _generate_heuristic(description: str, columns: List[str], mode: str) -> Dict
         snippets.append(f"df = df[df['{amount_col}'] < {threshold}]")
         explanations.append(f"filtrage des lignes où {amount_col} < {threshold}")
 
+    if any(k in desc for k in ["regroup", "group", "par ", "agréger", "agreger", "somme", "total", "sum"]) and amount_col:
+        group_col = _mentioned_column(desc, columns, exclude=amount_col) or account_col
+        if group_col:
+            snippets.append(
+                f"df = df.groupby('{group_col}', as_index=False)['{amount_col}'].sum()"
+            )
+            explanations.append(f"regroupement par « {group_col} » avec somme de {amount_col}")
+
     if any(k in desc for k in ["négati", "negati", "debit", "débit"]) and amount_col:
         snippets.append(f"df = df[df['{amount_col}'] < 0]")
         explanations.append(f"conservation des montants négatifs ({amount_col})")
@@ -169,7 +284,7 @@ def _generate_heuristic(description: str, columns: List[str], mode: str) -> Dict
         snippets.append("df = df.dropna()")
         explanations.append("suppression des lignes avec valeurs manquantes")
 
-    if any(k in desc for k in ["euro", "eur", "dollar", "usd", "convert", "taux", "devise"]) and amount_col:
+    if re.search(r"\b(euro|eur|dollar|usd|convertir|conversion|taux|devise)\b", desc) and amount_col:
         rate = _extract_number(desc) or 1.0
         snippets.append(f"df['{amount_col}_converted'] = df['{amount_col}'] * {rate}")
         explanations.append(f"conversion de devise sur {amount_col} (taux {rate})")

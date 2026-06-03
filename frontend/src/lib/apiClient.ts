@@ -1,15 +1,16 @@
+import { getSupabaseClient } from "../auth-service/config/supabaseClient";
+
 const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL ?? "http://localhost:8000").replace(/\/$/, "");
 const BASE = `${BACKEND_URL}/api`;
 
-const TOKEN_KEY = "datapipe_token";
-
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setToken(token: string | null) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+/** Jeton d'accès courant fourni par la session Supabase (ou null si déconnecté). */
+async function getAccessToken(): Promise<string | null> {
+  try {
+    const { data } = await getSupabaseClient().auth.getSession();
+    return data.session?.access_token ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export class ApiError extends Error {
@@ -32,7 +33,7 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
   const headers: Record<string, string> = {};
 
   if (auth) {
-    const token = getToken();
+    const token = await getAccessToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
 
@@ -51,9 +52,10 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
     throw new ApiError(0, "Impossible de joindre le serveur. Vérifie qu'il est démarré.");
   }
 
-  if (res.status === 401) {
-    setToken(null);
-  }
+  // NB : on ne déconnecte PAS la session Supabase sur un 401 du backend. La
+  // session est gérée par Supabase côté front ; un 401 backend signifie
+  // seulement que l'API n'a pas (encore) validé le jeton, et ne doit pas
+  // renvoyer l'utilisateur vers le landing.
 
   if (!res.ok) {
     let detail = `Erreur ${res.status}`;

@@ -9,11 +9,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@hookform/resolvers": "^3.10.0",
+    "@supabase/supabase-js": "^2.107.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-hook-form": "^7.77.0",
     "react-router-dom": "^7.16.0",
     "reactflow": "^11.11.4",
-    "run": "^1.5.0"
+    "run": "^1.5.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

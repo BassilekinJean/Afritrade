@@ -1,8 +1,13 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import type { ReactNode } from "react";
-import { useAuth } from "./auth/useAuth";
-import ProtectedRoute from "./auth/ProtectedRoute";
+import { useAuth, ProtectedRoute } from "./auth-service";
 import Spinner from "./components/ui/Spinner";
+
+const RouteSpinner = (
+  <div className="flex h-screen items-center justify-center bg-ink">
+    <Spinner />
+  </div>
+);
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -45,7 +50,7 @@ export default function App() {
       <Route
         path="/projets/:idProjet"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute redirectTo="/login" fallback={RouteSpinner}>
             <ProjectEditor />
           </ProtectedRoute>
         }

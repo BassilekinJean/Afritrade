@@ -1,4 +1,4 @@
-import { useAuth } from "../auth/useAuth";
+import { useAuth } from "../auth-service";
 import Landing from "./Landing";
 import Projects from "./Projects";
 import Spinner from "../components/ui/Spinner";

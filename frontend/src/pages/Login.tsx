@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useAuth } from "../auth/useAuth";
+import { useAuth } from "../auth-service";
 import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { signIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? "/";
@@ -19,14 +19,13 @@ export default function Login() {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    try {
-      await login(email.trim(), password);
-      navigate(from, { replace: true });
-    } catch (err: any) {
-      setError(err.message || "Connexion impossible.");
-    } finally {
-      setBusy(false);
+    const { error } = await signIn({ email: email.trim(), password });
+    setBusy(false);
+    if (error) {
+      setError(error);
+      return;
     }
+    navigate(from, { replace: true });
   };
 
   return (

@@ -1,17 +1,17 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "../auth/useAuth";
+import { Link } from "react-router-dom";
+import { useAuth } from "../auth-service";
 import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
 
 export default function Signup() {
-  const { signup } = useAuth();
-  const navigate = useNavigate();
+  const { signUp } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: FormEvent) => {
@@ -26,14 +26,17 @@ export default function Signup() {
     }
     setBusy(true);
     setError(null);
-    try {
-      await signup(email.trim(), password);
-      navigate("/", { replace: true });
-    } catch (err: any) {
-      setError(err.message || "Inscription impossible.");
-    } finally {
-      setBusy(false);
+    setSuccess(null);
+    const { error } = await signUp({ email: email.trim(), password });
+    setBusy(false);
+    if (error) {
+      setError(error);
+      return;
     }
+    // Si la confirmation d'email est désactivée, une session est ouverte et la
+    // redirection vers "/" se fait automatiquement (PublicOnlyRoute). Sinon, on
+    // invite l'utilisateur à confirmer son adresse.
+    setSuccess("Inscription réussie. Vérifiez votre email pour activer votre compte.");
   };
 
   return (
@@ -79,6 +82,7 @@ export default function Signup() {
               onChange={(e) => setConfirm(e.target.value)}
             />
             {error && <p className="text-xs text-bad">{error}</p>}
+            {success && <p className="text-xs text-good">{success}</p>}
             <Button type="submit" disabled={busy} className="mt-1 w-full">
               {busy ? "Création…" : "S'inscrire"}
             </Button>

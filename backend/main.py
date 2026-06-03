@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import base64
+import logging
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -27,20 +28,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import ai
-from database import Base, engine
+import storage
 from etl.extract import SQLITE_B64_PREFIX
 from pipeline import PipelineError, execute_graph, preview_source, store
 from routers import auth as auth_router
 from routers import projects as projects_router
+from storage import DatasetStore
 
 load_dotenv()
+
+logger = logging.getLogger("datapipe")
 
 app = FastAPI(title="DataPipe API", version="1.0.0")
 
 
 @app.on_event("startup")
 def on_startup() -> None:
-    Base.metadata.create_all(bind=engine)
+    # Les données applicatives (auth + projets) vivent dans Supabase, accédées
+    # via l'API REST/Auth : aucune connexion Postgres directe n'est requise.
+    # On s'assure simplement que le bucket de stockage existe.
+    if storage.is_configured():
+        try:
+            storage.SupabaseStorage().ensure_bucket()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Bucket Supabase indisponible au démarrage : %s", exc)
 
 
 _origins = os.environ.get(
@@ -58,8 +69,8 @@ app.add_middleware(
 app.include_router(auth_router.router)
 app.include_router(projects_router.router)
 
-# Stockage en mémoire des fichiers importés (clé = datasetId).
-DATASETS: Dict[str, str] = {}
+# Cache des fichiers importés, persisté dans Supabase Storage (clé = datasetId).
+DATASETS = DatasetStore()
 
 
 # --------------------------------------------------------------------------- #
@@ -93,7 +104,13 @@ class AIRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 @app.get("/api/health")
 def health() -> Dict[str, Any]:
-    return {"status": "ok", "datasets": len(DATASETS), "aiKey": bool(__import__("os").environ.get("OPENAI_API_KEY"))}
+    return {
+        "status": "ok",
+        "datasets": len(DATASETS),
+        "aiKey": bool(os.environ.get("OPENAI_API_KEY")),
+        "storage": storage.is_configured(),
+        "bucket": storage.BUCKET if storage.is_configured() else None,
+    }
 
 
 def _detect_kind(filename: str) -> str:
@@ -139,8 +156,24 @@ async def upload_source(
         except UnicodeDecodeError:
             content = raw.decode("latin-1")
 
-    dataset_id = str(uuid.uuid4())
-    DATASETS[dataset_id] = content
+    # L'identifiant du dataset EST le chemin de l'objet dans le bucket : on garde
+    # l'extension d'origine pour pouvoir re-déduire le type au rechargement.
+    ext = os.path.splitext(filename)[1].lower()
+    dataset_id = f"sources/{uuid.uuid4().hex}{ext}"
+
+    storage_warning: Optional[str] = None
+    if storage.is_configured():
+        try:
+            storage.SupabaseStorage().upload(
+                dataset_id, raw, file.content_type or "application/octet-stream"
+            )
+        except storage.StorageError as exc:
+            # On n'échoue pas l'import : le fichier reste utilisable en mémoire
+            # pour la session courante, on signale juste le souci de persistance.
+            storage_warning = str(exc)
+            logger.warning("Upload Supabase Storage échoué : %s", exc)
+
+    DATASETS.add(dataset_id, content)
 
     response: Dict[str, Any] = {
         "datasetId": dataset_id,
@@ -149,7 +182,10 @@ async def upload_source(
         "size": len(raw),
         "delimiter": delimiter,
         "table": table,
+        "stored": storage.is_configured() and storage_warning is None,
     }
+    if storage_warning:
+        response["storageWarning"] = storage_warning
     try:
         preview = preview_source(content, kind, delimiter=delimiter, table=table)
         response["preview"] = preview
@@ -183,7 +219,12 @@ def ai_generate(req: AIRequest) -> Dict[str, Any]:
     if not req.description.strip():
         raise HTTPException(status_code=400, detail="Description vide.")
     mode = req.mode if req.mode in ("pandas", "sql") else "pandas"
-    return ai.generate_transformation(req.description, req.columns, mode)
+    try:
+        return ai.generate_transformation(req.description, req.columns, mode)
+    except ai.CodeValidationError as exc:
+        raise HTTPException(status_code=422, detail=f"Code généré rejeté : {exc}") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Échec de la génération : {exc}") from exc
 
 
 @app.get("/api/etl/staging")
