@@ -1,6 +1,13 @@
 """API DataPipe — ETL visuel pour pipelines bancaires.
 
 Endpoints :
+  POST /api/auth/signup      -> inscription, renvoie un token JWT + l'utilisateur
+  POST /api/auth/login       -> connexion, renvoie un token JWT + l'utilisateur
+  GET  /api/auth/me          -> profil de l'utilisateur authentifié
+  GET  /api/projects         -> liste des projets de l'utilisateur
+  POST /api/projects         -> création d'un projet
+  GET  /api/projects/{id}    -> détail d'un projet (avec son graphe)
+  PATCH/DELETE /api/projects/{id} -> mise à jour / suppression
   POST /api/sources/upload   -> importe un fichier (CSV/JSON), renvoie un id + aperçu
   POST /api/pipeline/run     -> exécute le graphe nodal et renvoie les aperçus
   POST /api/ai/generate      -> génère du code de transformation depuis une description
@@ -9,25 +16,45 @@ Endpoints :
 
 from __future__ import annotations
 
+import os
 import uuid
 from typing import Any, Dict, List, Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import ai
+from database import Base, engine
 from pipeline import PipelineError, execute_graph
+from routers import auth as auth_router
+from routers import projects as projects_router
+
+load_dotenv()
 
 app = FastAPI(title="DataPipe API", version="1.0.0")
 
+
+@app.on_event("startup")
+def on_startup() -> None:
+    Base.metadata.create_all(bind=engine)
+
+
+_origins = os.environ.get(
+    "CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in _origins if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router.router)
+app.include_router(projects_router.router)
 
 # Stockage en mémoire des fichiers importés (clé = datasetId).
 DATASETS: Dict[str, str] = {}

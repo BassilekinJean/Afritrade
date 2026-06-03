@@ -43,3 +43,30 @@ export interface AIResponse {
   mode: string;
   source?: string;
 }
+
+export interface User {
+  id: string;
+  email: string;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: User;
+}
+
+export interface PipelineGraph {
+  nodes: any[];
+  edges: any[];
+}
+
+export interface ProjectSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Project extends ProjectSummary {
+  graph: PipelineGraph;
+}

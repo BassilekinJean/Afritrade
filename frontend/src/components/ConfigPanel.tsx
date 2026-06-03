@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { SPEC_BY_KIND, type FieldSpec } from "../nodeCatalog";
-import { uploadSource } from "../api";
+import { uploadSource } from "../api/pipeline";
 import type { Node } from "reactflow";
 import type { PipeNodeData } from "../types";
 

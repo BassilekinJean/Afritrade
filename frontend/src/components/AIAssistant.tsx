@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { generateCode } from "../api";
+import { generateCode } from "../api/pipeline";
 import type { AIResponse } from "../types";
 
 interface Props {
