@@ -12,7 +12,7 @@ export default function PipeNode({ data, selected }: NodeProps<PipeNodeData & { 
 
   return (
     <div
-      className={`min-w-[180px] rounded-xl border bg-panel2 shadow-lg transition ${
+      className={`min-w-[184px] rounded-xl border bg-panel2 shadow-node transition ${
         selected ? "border-accent ring-2 ring-accent/40" : "border-edge"
       }`}
     >
@@ -40,8 +40,9 @@ export default function PipeNode({ data, selected }: NodeProps<PipeNodeData & { 
             {status.error}
           </div>
         ) : status?.rowCount !== undefined ? (
-          <div className="mt-1 inline-flex items-center gap-1 rounded bg-good/15 px-2 py-0.5 text-[11px] text-good">
-            ● {status.rowCount} ligne{status.rowCount > 1 ? "s" : ""}
+          <div className="mt-1 inline-flex items-center gap-1.5 rounded bg-good/15 px-2 py-0.5 text-[11px] text-good">
+            <span className="h-1.5 w-1.5 rounded-full bg-good" />
+            {status.rowCount} ligne{status.rowCount > 1 ? "s" : ""}
           </div>
         ) : null}
       </div>
