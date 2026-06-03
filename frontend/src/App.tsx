@@ -65,12 +65,31 @@ function Flow() {
   const [tab, setTab] = useState<Tab>("config");
   const [aiKey, setAiKey] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    type: "node" | "edge";
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const rfRef = useRef<ReactFlowInstance | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     health().then((h) => setAiKey(h.aiKey)).catch(() => setAiKey(false));
   }, []);
+
+  // Ferme le menu contextuel sur clic extérieur ou touche Échap.
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [contextMenu]);
 
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedId) ?? null,
@@ -91,6 +110,16 @@ function Flow() {
 
   const onConnect = useCallback(
     (conn: Connection) => setEdges((eds) => addEdge({ ...conn, id: `e${Date.now()}` }, eds)),
+    [setEdges]
+  );
+
+  // Supprime le lien (edge) actuellement sélectionné au clavier.
+  const onEdgesDelete = useCallback(
+    (deleted: Edge[]) => {
+      if (!deleted.length) return;
+      const ids = new Set(deleted.map((e) => e.id));
+      setEdges((eds) => eds.filter((e) => !ids.has(e.id)));
+    },
     [setEdges]
   );
 
@@ -136,12 +165,49 @@ function Flow() {
     [selectedId, setNodes]
   );
 
+  const deleteNodeById = useCallback(
+    (id: string) => {
+      setNodes((nds) => nds.filter((n) => n.id !== id));
+      setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+      setSelectedId((cur) => (cur === id ? null : cur));
+    },
+    [setNodes, setEdges]
+  );
+
   const deleteNode = useCallback(() => {
     if (!selectedId) return;
-    setNodes((nds) => nds.filter((n) => n.id !== selectedId));
-    setEdges((eds) => eds.filter((e) => e.source !== selectedId && e.target !== selectedId));
-    setSelectedId(null);
-  }, [selectedId, setNodes, setEdges]);
+    deleteNodeById(selectedId);
+  }, [selectedId, deleteNodeById]);
+
+  const deleteEdgeById = useCallback(
+    (id: string) => setEdges((eds) => eds.filter((e) => e.id !== id)),
+    [setEdges]
+  );
+
+  // Affiche le menu contextuel sur clic droit, positionné dans le canvas.
+  const openContextMenu = useCallback(
+    (event: React.MouseEvent, type: "node" | "edge", id: string) => {
+      event.preventDefault();
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      setContextMenu({
+        type,
+        id,
+        x: event.clientX - (rect?.left ?? 0),
+        y: event.clientY - (rect?.top ?? 0),
+      });
+      if (type === "node") setSelectedId(id);
+    },
+    []
+  );
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  const deleteFromContextMenu = useCallback(() => {
+    if (!contextMenu) return;
+    if (contextMenu.type === "node") deleteNodeById(contextMenu.id);
+    else deleteEdgeById(contextMenu.id);
+    setContextMenu(null);
+  }, [contextMenu, deleteNodeById, deleteEdgeById]);
 
   const applyAICode = useCallback(
     (kind: "custom" | "sql", code: string) => {
@@ -232,6 +298,10 @@ function Flow() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onEdgesDelete={onEdgesDelete}
+            deleteKeyCode={["Backspace", "Delete"]}
+            edgesFocusable
+            elementsSelectable
             onInit={(inst) => (rfRef.current = inst)}
             onDrop={onDrop}
             onDragOver={(e) => {
@@ -240,10 +310,17 @@ function Flow() {
             }}
             onNodeClick={(_, node) => {
               setSelectedId(node.id);
+              setContextMenu(null);
               if (tab === "ai") return;
               setTab(previews[node.id] ? "preview" : "config");
             }}
-            onPaneClick={() => setSelectedId(null)}
+            onNodeContextMenu={(e, node) => openContextMenu(e, "node", node.id)}
+            onEdgeContextMenu={(e, edge) => openContextMenu(e, "edge", edge.id)}
+            onPaneClick={() => {
+              setSelectedId(null);
+              setContextMenu(null);
+            }}
+            onMove={closeContextMenu}
             nodeTypes={nodeTypes}
             fitView
             defaultEdgeOptions={{ animated: true }}
@@ -257,6 +334,27 @@ function Flow() {
               className="!bg-panel2"
             />
           </ReactFlow>
+          <div className="pointer-events-none absolute bottom-3 right-3 rounded-md border border-edge bg-panel/80 px-2.5 py-1 text-[11px] text-slate-400 backdrop-blur">
+            Clic droit ou <kbd className="rounded bg-panel2 px-1 text-slate-200">Suppr</kbd> pour supprimer un lien / nœud
+          </div>
+
+          {contextMenu && (
+            <div
+              className="absolute z-50 min-w-[150px] overflow-hidden rounded-lg border border-edge bg-panel shadow-xl"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="border-b border-edge px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                {contextMenu.type === "edge" ? "Lien" : "Nœud"}
+              </div>
+              <button
+                onClick={deleteFromContextMenu}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-bad transition hover:bg-bad/10"
+              >
+                🗑 Supprimer
+              </button>
+            </div>
+          )}
         </main>
 
         {/* Right panel */}
