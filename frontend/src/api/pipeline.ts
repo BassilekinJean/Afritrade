@@ -1,16 +1,29 @@
 import { apiClient } from "../lib/apiClient";
-import type { AIResponse, RunResult } from "../types";
+import type { AIResponse, RunResult, TablePreview } from "../types";
 
-export async function uploadSource(file: File): Promise<{
+export interface UploadResult {
   datasetId: string;
   filename: string;
   kind: string;
   size: number;
-  preview: string;
-}> {
+  delimiter?: string | null;
+  table?: string | null;
+  rowCount?: number;
+  columns?: string[];
+  preview?: TablePreview;
+}
+
+export interface UploadOptions {
+  delimiter?: string;
+  table?: string;
+}
+
+export async function uploadSource(file: File, opts: UploadOptions = {}): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file);
-  return apiClient.upload("/sources/upload", form);
+  if (opts.delimiter) form.append("delimiter", opts.delimiter);
+  if (opts.table) form.append("table", opts.table);
+  return apiClient.upload<UploadResult>("/sources/upload", form);
 }
 
 export function runPipeline(nodes: any[], edges: any[]): Promise<RunResult> {

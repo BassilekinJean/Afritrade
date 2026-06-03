@@ -1,7 +1,0 @@
-9: DataPipe - ETL Visuel pour Pipelines Bancaires
-○​ Concept: Une interface web nodale (visuelle) permettant de concevoir des flux
-d'ingestion de données (fichiers CSV, JSON, bases SQL) et d'appliquer des
-transformations à la volée.
-○​ Opportunité Bonus IA: Un assistant capable de générer le code de transformation
-de données complexe (requête SQL ou script de nettoyage) à partir d'une
-description textuelle de l'utilisateur.
