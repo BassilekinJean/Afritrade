@@ -25,6 +25,7 @@ export default function ConfigPanel({ node, upstreamColumns, onChange, onRename,
   const config = node.data.config || {};
 
   const set = (key: string, value: any) => onChange({ ...config, [key]: value });
+  const setMany = (updates: Record<string, any>) => onChange({ ...config, ...updates });
 
   return (
     <div className="flex h-full flex-col">
@@ -66,6 +67,7 @@ export default function ConfigPanel({ node, upstreamColumns, onChange, onRename,
             config={config}
             upstreamColumns={upstreamColumns}
             onChange={set}
+            onChangeMany={setMany}
           />
         ))}
       </div>
@@ -79,12 +81,14 @@ function Field({
   config,
   upstreamColumns,
   onChange,
+  onChangeMany,
 }: {
   field: FieldSpec;
   value: any;
   config: Record<string, any>;
   upstreamColumns: string[];
   onChange: (key: string, value: any) => void;
+  onChangeMany: (updates: Record<string, any>) => void;
 }) {
   const label = (
     <label className="mb-1 block text-xs font-medium text-slate-300">{field.label}</label>
@@ -156,7 +160,7 @@ function Field({
     case "keyvalue":
       return <KeyValueField field={field} value={value} onChange={onChange} />;
     case "file":
-      return <FileField field={field} config={config} onChange={onChange} />;
+      return <FileField field={field} config={config} onChange={onChangeMany} />;
     default:
       return null;
   }
@@ -278,7 +282,7 @@ function FileField({
 }: {
   field: FieldSpec;
   config: Record<string, any>;
-  onChange: (key: string, value: any) => void;
+  onChange: (updates: Record<string, any>) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -290,10 +294,12 @@ function FileField({
     setPreview(null);
     try {
       const res = await uploadSource(file, { delimiter: config.delimiter, table: config.table });
-      onChange("datasetId", res.datasetId);
-      onChange("__filename", res.filename);
-      onChange("__columns", res.columns ?? []);
-      onChange("__rowCount", res.rowCount ?? 0);
+      onChange({
+        datasetId: res.datasetId,
+        __filename: res.filename,
+        __columns: res.columns ?? [],
+        __rowCount: res.rowCount ?? 0,
+      });
       if (res.preview) {
         if (res.preview.error) setErr(res.preview.error);
         else setPreview(res.preview);

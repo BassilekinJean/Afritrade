@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import os
 import threading
+from pathlib import Path
 from typing import Dict, Optional
 
 import httpx
@@ -29,6 +30,13 @@ from dotenv import load_dotenv
 from etl.extract import SQLITE_B64_PREFIX
 
 load_dotenv()
+
+# Cache disque local des fichiers importés : garantit que la source reste
+# disponible pendant toute la session, même si le serveur redémarre ou recharge,
+# et indépendamment de l'accès réseau à Supabase Storage.
+_UPLOAD_DIR = Path(
+    os.environ.get("DATAPIPE_DATA_DIR", Path(__file__).resolve().parent / ".data")
+) / "uploads"
 
 SUPABASE_URL = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
 SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
@@ -147,12 +155,34 @@ class DatasetStore:
         self._lock = threading.Lock()
         self.storage = storage or SupabaseStorage()
 
+    def _disk_path(self, dataset_id: str) -> Path:
+        # dataset_id ressemble à "sources/<hex><ext>" ; on aplatit le chemin.
+        safe = dataset_id.replace("/", "__")
+        return _UPLOAD_DIR / safe
+
     def add(self, dataset_id: str, content: str) -> None:
         with self._lock:
             self._mem[dataset_id] = content
+        # Persistance disque (best-effort) pour survivre aux reloads du serveur.
+        try:
+            _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+            self._disk_path(dataset_id).write_text(content, encoding="utf-8")
+        except OSError:
+            pass
 
     def _hydrate(self, dataset_id: str) -> bool:
-        """Tente de recharger un dataset absent du cache depuis Storage."""
+        """Recharge un dataset absent du cache : d'abord le disque, puis Storage."""
+        # 1) Cache disque local (rapide, sans réseau).
+        path = self._disk_path(dataset_id)
+        try:
+            if path.is_file():
+                content = path.read_text(encoding="utf-8")
+                with self._lock:
+                    self._mem[dataset_id] = content
+                return True
+        except OSError:
+            pass
+        # 2) Repli sur Supabase Storage.
         if not is_configured():
             return False
         try:

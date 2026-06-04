@@ -17,6 +17,8 @@ import ast
 import json
 import os
 import re
+import time
+import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 
@@ -140,7 +142,7 @@ def generate_transformation(
             return result
         except Exception as exc:  # noqa: BLE001 - on retombe sur l'heuristique
             fallback = _generate_heuristic(description, columns, mode)
-            fallback["explanation"] += f" (IA distante indisponible : {exc})"
+            fallback["explanation"] += f" (IA distante indisponible : {_explain_ai_error(exc)})"
             fallback["source"] = "heuristic-fallback"
             validate_generated_code(fallback["code"], fallback["mode"])
             return fallback
@@ -153,6 +155,17 @@ def generate_transformation(
 # --------------------------------------------------------------------------- #
 #  Backend OpenAI
 # --------------------------------------------------------------------------- #
+class AIServiceError(RuntimeError):
+    """Erreur renvoyée par le fournisseur d'IA distant (réseau, quota, auth...)."""
+
+
+def _api_base_url() -> str:
+    """Base d'API compatible OpenAI (OpenAI, Groq, OpenRouter, etc.)."""
+    base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    # Tolère que l'utilisateur fournisse l'URL avec ou sans /v1.
+    return base
+
+
 def _generate_with_openai(
     description: str, columns: List[str], mode: str, api_key: str
 ) -> Dict[str, Any]:
@@ -162,34 +175,154 @@ def _generate_with_openai(
         f"Colonnes disponibles: {', '.join(columns) if columns else 'inconnues'}\n"
         f"Description de la transformation souhaitée:\n{description}"
     )
-    payload = {
+    base_url = _api_base_url()
+    payload: Dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.1,
-        "response_format": {"type": "json_object"},
     }
-    req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
-        body = json.loads(resp.read().decode("utf-8"))
-    content = body["choices"][0]["message"]["content"]
-    parsed = json.loads(content)
+    # Le mode JSON strict n'est pas supporté par tous les modèles gratuits
+    # (OpenRouter) ; on l'active seulement là où il est fiable.
+    if "openrouter.ai" not in base_url:
+        payload["response_format"] = {"type": "json_object"}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    # En-têtes recommandés par OpenRouter (facultatifs, ignorés ailleurs).
+    if "openrouter.ai" in base_url:
+        headers["HTTP-Referer"] = "http://localhost:5173"
+        headers["X-Title"] = "DataPipe"
+
+    data = json.dumps(payload).encode("utf-8")
+    # Les modèles gratuits (OpenRouter) sont souvent rate-limités en amont :
+    # on réessaie quelques fois en respectant l'en-tête Retry-After.
+    max_attempts = 4
+    last_http_error: Optional[urllib.error.HTTPError] = None
+    body: Optional[Dict[str, Any]] = None
+    for attempt in range(max_attempts):
+        req = urllib.request.Request(
+            f"{base_url}/chat/completions",
+            data=data,
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=45) as resp:  # noqa: S310
+                body = json.loads(resp.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            last_http_error = exc
+            if exc.code == 429 and attempt < max_attempts - 1:
+                retry_after = _retry_after_seconds(exc, default=3.0)
+                time.sleep(min(retry_after, 8.0))
+                continue
+            raise AIServiceError(_format_http_error(exc)) from exc
+        except urllib.error.URLError as exc:
+            raise AIServiceError(
+                f"connexion impossible au fournisseur IA ({exc.reason})"
+            ) from exc
+
+    if body is None:  # tous les essais ont échoué sur 429
+        raise AIServiceError(_format_http_error(last_http_error))
+
+    try:
+        content = body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise AIServiceError("réponse inattendue du fournisseur IA") from exc
+
+    parsed = _parse_model_json(content)
     return {
         "code": parsed.get("code", ""),
         "explanation": parsed.get("explanation", ""),
         "mode": mode,
         "source": f"openai:{model}",
     }
+
+
+def _parse_model_json(content: str) -> Dict[str, Any]:
+    """Extrait l'objet JSON de la réponse du modèle.
+
+    Tolère le texte autour et les blocs Markdown ```json … ``` que renvoient
+    certains modèles gratuits ne supportant pas le mode JSON strict.
+    """
+    text = (content or "").strip()
+    # Retire d'éventuelles clôtures Markdown.
+    fence = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Repli : on isole le 1ᵉʳ objet JSON équilibré dans la chaîne.
+    start = text.find("{")
+    if start != -1:
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start : i + 1])
+                    except json.JSONDecodeError:
+                        break
+    raise AIServiceError("la réponse du modèle n'est pas un JSON valide")
+
+
+def _retry_after_seconds(exc: "urllib.error.HTTPError", default: float) -> float:
+    """Délai d'attente avant nouvel essai (en-tête HTTP Retry-After)."""
+    header = exc.headers.get("Retry-After") if exc.headers else None
+    if header:
+        try:
+            return float(header)
+        except ValueError:
+            pass
+    return default
+
+
+def _format_http_error(exc: "urllib.error.HTTPError") -> str:
+    """Transforme une erreur HTTP du fournisseur en message clair (français)."""
+    detail = ""
+    code = ""
+    try:
+        body = json.loads(exc.read().decode("utf-8"))
+        err = body.get("error", body) if isinstance(body, dict) else {}
+        if isinstance(err, dict):
+            detail = str(err.get("message", "") or "")
+            code = str(err.get("code", "") or err.get("type", "") or "")
+    except Exception:  # noqa: BLE001
+        pass
+
+    if exc.code == 429:
+        if "insufficient_quota" in code or "quota" in detail.lower():
+            return (
+                "quota du compte OpenAI épuisé — ajoutez du crédit sur "
+                "platform.openai.com (Billing) ou configurez OPENAI_BASE_URL "
+                "vers un fournisseur compatible (Groq, OpenRouter…)"
+            )
+        if "rate-limit" in detail.lower() or "rate limited" in detail.lower():
+            return (
+                "modèle gratuit momentanément saturé (429) — réessayez, ou "
+                "passez à Groq (plus fiable) ou à un modèle payant"
+            )
+        return "limite de débit atteinte (429), réessayez dans quelques instants"
+    if exc.code == 401:
+        return "clé API invalide ou révoquée (401) — vérifiez OPENAI_API_KEY"
+    if exc.code == 404:
+        return f"modèle « {os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')} » introuvable (404)"
+    return f"HTTP {exc.code} : {detail or exc.reason}"
+
+
+def _explain_ai_error(exc: Exception) -> str:
+    if isinstance(exc, AIServiceError):
+        return str(exc)
+    return str(exc)
 
 
 # --------------------------------------------------------------------------- #
