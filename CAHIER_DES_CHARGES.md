@@ -1,11 +1,11 @@
-# Cahier des Charges — DataPipe
+# Cahier des Charges — AAPROVIDIR
 
 > **ETL Visuel pour Pipelines Bancaires**
 > Interface web nodale de conception de flux d'ingestion et de transformation de données, augmentée par un assistant IA.
 
 | Champ | Valeur |
 |---|---|
-| **Nom du projet** | DataPipe |
+| **Nom du projet** | AAPROVIDIR |
 | **Type** | Application web (éditeur nodal d'ETL) |
 | **Contexte** | Secteur bancaire et financier camerounais / africain |
 | **Durée de réalisation** | 7 heures (hackathon) |
@@ -38,7 +38,7 @@ Aujourd'hui, ces transformations sont faites **manuellement dans Excel** ou via 
 
 ### 1.3 Solution proposée
 
-**DataPipe** : une interface web **visuelle et nodale** (type « glisser-déposer ») permettant à un analyste — **sans écrire de code** — de :
+**AAPROVIDIR** : une interface web **visuelle et nodale** (type « glisser-déposer ») permettant à un analyste — **sans écrire de code** — de :
 
 1. **Connecter des sources** de données (CSV, JSON, base SQL).
 2. **Chaîner des transformations** (filtres, jointures, nettoyage, agrégations) sous forme de graphe de nœuds.

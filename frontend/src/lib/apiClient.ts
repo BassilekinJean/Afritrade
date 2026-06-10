@@ -6,8 +6,16 @@ const BASE = `${BACKEND_URL}/api`;
 /** Jeton d'accès courant fourni par la session Supabase (ou null si déconnecté). */
 async function getAccessToken(): Promise<string | null> {
   try {
-    const { data } = await getSupabaseClient().auth.getSession();
-    return data.session?.access_token ?? null;
+    const supabase = getSupabaseClient();
+
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession();
+
+    if (error || !session) return null;
+
+    return session.access_token;
   } catch {
     return null;
   }

@@ -4,10 +4,20 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#0a0f1c",
+        primary: {
+          DEFAULT: '#4F46E5', // indigo-600
+          hover: '#4338CA',
+          light: '#EEF2FF',
+        },
+        surface: '#FFFFFF',
+        canvas: '#FAFAFA',
+        muted: '#F3F4F6',
+        ink: '#1F2937', // Texte principal (plus clair que le noir pur)
+        edge: '#E5E7EB',
+      
         panel: "#0f1626",
         panel2: "#15203a",
-        edge: "#1f2a44",
+        //edge: "#1f2a44",
         accent: "#3b82f6",
         accent2: "#2563eb",
         gold: "#c9a24b",
@@ -15,6 +25,7 @@ export default {
         warn: "#f59e0b",
         bad: "#ef4444",
       },
+      
       fontFamily: {
         sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "monospace"],

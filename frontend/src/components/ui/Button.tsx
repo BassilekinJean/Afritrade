@@ -1,25 +1,44 @@
-import type { ButtonHTMLAttributes } from "react";
-
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+// components/ui/Button.tsx
+import { ButtonHTMLAttributes } from "react";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: Variant;
+  variant?: "primary" | "secondary" | "ghost" | "danger";
+  size?: "sm" | "md" | "lg";
 }
 
-const VARIANTS: Record<Variant, string> = {
-  primary:
-    "bg-gradient-to-r from-accent to-accent2 text-ink hover:opacity-90 disabled:opacity-40",
-  secondary:
-    "bg-panel2 text-slate-100 border border-edge hover:bg-edge disabled:opacity-40",
-  ghost: "bg-transparent text-slate-300 hover:bg-panel2 disabled:opacity-40",
-  danger: "bg-bad text-ink hover:opacity-90 disabled:opacity-40",
-};
+export default function Button({
+  children,
+  variant = "primary",
+  size = "md",
+  className = "",
+  ...props
+}: ButtonProps) {
+  const baseStyles =
+    "inline-flex items-center justify-center font-semibold rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2";
 
-export default function Button({ variant = "primary", className = "", ...props }: ButtonProps) {
+  const variants = {
+    primary:
+      "bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500 shadow-sm",
+    secondary:
+      "bg-white text-slate-700 border-2 border-slate-200 hover:bg-slate-50 focus:ring-indigo-500",
+    ghost:
+      "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:ring-slate-300",
+    danger:
+      "bg-red-600 text-white hover:bg-red-700 focus:ring-red-500 shadow-sm",
+  };
+
+  const sizes = {
+    sm: "px-3 py-1.5 text-sm",
+    md: "px-5 py-2.5 text-sm",
+    lg: "px-6 py-3 text-base",
+  };
+
   return (
     <button
+      className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
       {...props}
-      className={`rounded-lg px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed ${VARIANTS[variant]} ${className}`}
-    />
+    >
+      {children}
+    </button>
   );
 }
