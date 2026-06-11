@@ -1,6 +1,19 @@
 import type { NodeKind, NodeConfig } from "./types";
 
-export type FieldType = "text" | "textarea" | "code" | "number" | "boolean" | "select" | "keyvalue" | "file" | "columns";
+export type FieldType =
+  | "text"
+  | "textarea"
+  | "code"
+  | "number"
+  | "boolean"
+  | "select"
+  | "keyvalue"
+  | "file"
+  | "columns"
+  | "url"
+  | "database"
+  | "connection"
+  | "rules";
 
 export interface FieldSpec {
   key: string;
@@ -15,186 +28,446 @@ export interface FieldSpec {
 export interface NodeSpec {
   kind: NodeKind;
   label: string;
-  category: "source" | "transform" | "output";
+  category: "trigger" | "source" | "transform" | "output";
   icon: string;
   color: string;
   description: string;
   defaultConfig: NodeConfig;
   fields: FieldSpec[];
+  /** Masqué de la palette (compatibilité anciens projets). */
+  hidden?: boolean;
 }
 
+const FILE_ACCEPT =
+  ".csv,.txt,.tsv,.json,.xlsx,.xls,.xlsm,.pdf,.docx,.doc,.sql,.sqlite,.sqlite3,.db,.xml,.html,.htm";
+
 export const NODE_SPECS: NodeSpec[] = [
+  // --- Déclencheurs (n8n) ---
   {
-    kind: "source_csv",
-    label: "Source CSV",
+    kind: "trigger_manual",
+    label: "Déclenchement manuel",
+    category: "trigger",
+    icon: "▶️",
+    color: "#059669",
+    description: "Lance le workflow à la demande (bouton Exécuter)",
+    defaultConfig: {},
+    fields: [],
+  },
+  {
+    kind: "trigger_webhook",
+    label: "Webhook",
+    category: "trigger",
+    icon: "🔗",
+    color: "#059669",
+    description: "Déclenche le pipeline via une URL HTTP (POST)",
+    defaultConfig: {},
+    fields: [
+      {
+        key: "_hint",
+        label: "Configuration",
+        type: "text",
+        help: "Créez le webhook dans l'onglet Automation du projet pour obtenir l'URL.",
+      },
+    ],
+  },
+  {
+    kind: "trigger_schedule",
+    label: "Planification cron",
+    category: "trigger",
+    icon: "⏰",
+    color: "#059669",
+    description: "Exécution automatique selon une expression cron",
+    defaultConfig: { cron: "0 8 * * *" },
+    fields: [
+      {
+        key: "cron",
+        label: "Expression cron",
+        type: "text",
+        placeholder: "0 8 * * *",
+        help: "Ex. 0 8 * * * = tous les jours à 8h. Configurez aussi dans Automation.",
+      },
+    ],
+  },
+  {
+    kind: "source_file",
+    label: "Importer un fichier",
     category: "source",
-    icon: "CSV",
-    color: "#10b981",
-    description: "Importer un fichier CSV",
+    icon: "📄",
+    color: "#0d9488",
+    description: "Tableur, document, base locale… tous formats acceptés",
     defaultConfig: { delimiter: "," },
     fields: [
-      { key: "file", label: "Fichier CSV", type: "file", accept: ".csv,.txt", help: "Importez un .csv depuis votre poste." },
-      { key: "delimiter", label: "Délimiteur", type: "text", placeholder: "," },
-      { key: "content", label: "Ou collez le CSV", type: "textarea", placeholder: "id,montant\n1,1200" },
+      {
+        key: "file",
+        label: "Choisissez votre fichier",
+        type: "file",
+        accept: FILE_ACCEPT,
+        help: "CSV, Excel, JSON, PDF, Word, SQL, SQLite, texte…",
+      },
+      { key: "delimiter", label: "Séparateur (CSV)", type: "text", placeholder: "," },
+      { key: "table", label: "Table (fichier SQL)", type: "text", placeholder: "Nom de la table" },
+      { key: "sheet", label: "Feuille Excel", type: "text", placeholder: "Feuille1 ou 0" },
+    ],
+  },
+  {
+    kind: "source_url",
+    label: "Lien ou page web",
+    category: "source",
+    icon: "🌐",
+    color: "#2563eb",
+    description: "Article, page HTML, CSV ou JSON en ligne",
+    defaultConfig: { url: "" },
+    fields: [
+      {
+        key: "url",
+        label: "Adresse web",
+        type: "url",
+        placeholder: "https://exemple.com/donnees.csv",
+        help: "Collez un lien vers une page, un fichier ou une API.",
+      },
+    ],
+  },
+  {
+    kind: "source_database",
+    label: "Base de données",
+    category: "source",
+    icon: "🗄️",
+    color: "#7c3aed",
+    description: "Se connecter à SQLite, PostgreSQL ou MySQL",
+    defaultConfig: { connectionUrl: "", table: "", query: "" },
+    fields: [
+      {
+        key: "database",
+        label: "Connexion",
+        type: "database",
+        help: "Ex. sqlite:///./ma_base.db — ou choisissez une connexion enregistrée",
+      },
+      {
+        key: "connectionId",
+        label: "Connexion enregistrée",
+        type: "connection",
+        help: "Référentiel Talend — prioritaire sur l'URL saisie",
+      },
+    ],
+  },
+  {
+    kind: "http_request",
+    label: "Requête HTTP",
+    category: "transform",
+    icon: "🌍",
+    color: "#0ea5e9",
+    description: "Appel API REST sortant (style n8n)",
+    defaultConfig: { method: "GET", url: "", headers: {} },
+    fields: [
+      { key: "method", label: "Méthode", type: "select", options: ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+      { key: "url", label: "URL", type: "url", placeholder: "https://api.exemple.com/data" },
+      { key: "headers", label: "En-têtes", type: "keyvalue" },
+      { key: "body", label: "Corps (JSON)", type: "textarea", placeholder: '{"key": "value"}' },
+      { key: "timeout", label: "Timeout (s)", type: "number" },
+    ],
+  },
+  // --- Anciens types (projets existants) ---
+  {
+    kind: "source_csv",
+    label: "Fichier CSV",
+    category: "source",
+    icon: "CSV",
+    color: "#0d9488",
+    description: "Tableur séparé par virgules ou point-virgules",
+    defaultConfig: { delimiter: "," },
+    hidden: true,
+    fields: [
+      { key: "file", label: "Fichier", type: "file", accept: ".csv,.txt,.tsv" },
+      { key: "delimiter", label: "Séparateur", type: "text", placeholder: "," },
+      { key: "content", label: "Ou collez vos données", type: "textarea" },
     ],
   },
   {
     kind: "source_json",
-    label: "Source JSON",
+    label: "Fichier JSON",
     category: "source",
     icon: "JSON",
-    color: "#10b981",
-    description: "Importer un fichier JSON",
+    color: "#0d9488",
+    description: "Données structurées JSON",
     defaultConfig: {},
+    hidden: true,
     fields: [
-      { key: "file", label: "Fichier JSON", type: "file", accept: ".json", help: "Importez un .json (tableau d'objets)." },
-      { key: "content", label: "Ou collez le JSON", type: "textarea", placeholder: '[{"id":1,"montant":1200}]' },
+      { key: "file", label: "Fichier", type: "file", accept: ".json" },
+      { key: "content", label: "Ou collez le JSON", type: "textarea" },
     ],
   },
   {
     kind: "source_sql_file",
-    label: "Source SQL (fichier)",
+    label: "Fichier SQL",
     category: "source",
     icon: "SQL",
-    color: "#10b981",
-    description: "Importer un dump .sql ou une base SQLite",
+    color: "#0d9488",
+    description: "Export SQL ou base SQLite",
     defaultConfig: {},
+    hidden: true,
     fields: [
-      {
-        key: "file",
-        label: "Fichier SQL / base SQLite",
-        type: "file",
-        accept: ".sql,.sqlite,.sqlite3,.db",
-        help: "Dump .sql (CREATE/INSERT) ou base .sqlite / .db exportée du core banking.",
-      },
-      {
-        key: "table",
-        label: "Table à charger",
-        type: "text",
-        placeholder: "(1ʳᵉ table par défaut)",
-        help: "Nom de la table à extraire si le fichier en contient plusieurs.",
-      },
+      { key: "file", label: "Fichier", type: "file", accept: ".sql,.sqlite,.sqlite3,.db" },
+      { key: "table", label: "Table", type: "text" },
     ],
   },
   {
     kind: "filter",
-    label: "Filtrer",
+    label: "Garder certaines lignes",
     category: "transform",
-    icon: "WHERE",
+    icon: "🔍",
     color: "#3b82f6",
-    description: "Filtrer les lignes (df.query)",
+    description: "Ne conserver que les lignes qui vous intéressent",
     defaultConfig: { expression: "" },
     fields: [
       {
         key: "expression",
-        label: "Expression",
+        label: "Condition",
         type: "text",
-        placeholder: "montant > 1000 and pays == 'FR'",
-        help: "Syntaxe pandas query.",
+        placeholder: "montant > 1000",
+        help: "Exemple : agence == 'Douala' and montant > 50000",
       },
     ],
   },
   {
     kind: "select",
-    label: "Sélectionner colonnes",
+    label: "Choisir des colonnes",
     category: "transform",
-    icon: "COLS",
+    icon: "📋",
     color: "#3b82f6",
-    description: "Conserver certaines colonnes",
+    description: "Ne garder que les colonnes utiles",
     defaultConfig: { columns: [] },
-    fields: [{ key: "columns", label: "Colonnes à garder", type: "columns" }],
+    fields: [{ key: "columns", label: "Colonnes à conserver", type: "columns" }],
   },
   {
     kind: "rename",
-    label: "Renommer",
+    label: "Renommer des colonnes",
     category: "transform",
-    icon: "A→B",
+    icon: "✏️",
     color: "#3b82f6",
-    description: "Renommer des colonnes",
+    description: "Donner des noms plus clairs à vos colonnes",
     defaultConfig: { mapping: {} },
-    fields: [{ key: "mapping", label: "Ancien → Nouveau", type: "keyvalue" }],
+    fields: [{ key: "mapping", label: "Ancien nom → Nouveau nom", type: "keyvalue" }],
   },
   {
     kind: "sort",
     label: "Trier",
     category: "transform",
-    icon: "SORT",
+    icon: "↕️",
     color: "#3b82f6",
-    description: "Trier par colonne",
+    description: "Classer les lignes par ordre croissant ou décroissant",
     defaultConfig: { by: "", ascending: true },
     fields: [
-      { key: "by", label: "Colonne", type: "text", placeholder: "montant" },
+      { key: "by", label: "Colonne de tri", type: "text", placeholder: "date" },
       { key: "ascending", label: "Ordre croissant", type: "boolean" },
     ],
   },
   {
     kind: "aggregate",
-    label: "Agréger",
+    label: "Résumer par groupe",
     category: "transform",
-    icon: "Σ",
+    icon: "📊",
     color: "#3b82f6",
-    description: "Regrouper et agréger",
+    description: "Calculer des totaux, moyennes… par catégorie",
     defaultConfig: { groupBy: [], aggregations: {} },
     fields: [
       { key: "groupBy", label: "Regrouper par", type: "columns" },
       {
         key: "aggregations",
-        label: "Agrégations (colonne → fonction)",
+        label: "Calculs (colonne → fonction)",
         type: "keyvalue",
-        help: "Fonctions : sum, mean, count, min, max, std...",
+        help: "Fonctions : sum, mean, count, min, max…",
       },
     ],
   },
   {
     kind: "dedupe",
-    label: "Dédoublonner",
+    label: "Supprimer les doublons",
     category: "transform",
-    icon: "UNIQ",
+    icon: "🧹",
     color: "#3b82f6",
-    description: "Supprimer les doublons",
+    description: "Éliminer les lignes en double",
     defaultConfig: { columns: [] },
-    fields: [{ key: "columns", label: "Clés (vide = toutes)", type: "columns" }],
+    fields: [{ key: "columns", label: "Colonnes clés (vide = toutes)", type: "columns" }],
+  },
+  {
+    kind: "join",
+    label: "Fusionner deux tableaux",
+    category: "transform",
+    icon: "🔗",
+    color: "#6366f1",
+    description: "Relier deux sources sur une colonne commune",
+    defaultConfig: { how: "inner", on: "" },
+    fields: [
+      { key: "how", label: "Type de fusion", type: "select", options: ["inner", "left", "right", "outer"] },
+      { key: "on", label: "Colonne commune", type: "text", placeholder: "id_client" },
+    ],
+  },
+  {
+    kind: "lookup",
+    label: "Lookup / enrichissement",
+    category: "transform",
+    icon: "🔎",
+    color: "#6366f1",
+    description: "Enrichir avec une table de référence (Talend)",
+    defaultConfig: { how: "left", on: "" },
+    fields: [
+      { key: "on", label: "Colonne clé", type: "text", placeholder: "code_pays" },
+      { key: "how", label: "Type", type: "select", options: ["left", "inner"] },
+    ],
+  },
+  {
+    kind: "union",
+    label: "Union / empiler",
+    category: "transform",
+    icon: "📚",
+    color: "#6366f1",
+    description: "Concaténer plusieurs flux (2+ entrées)",
+    defaultConfig: { ignoreIndex: true },
+    fields: [
+      { key: "ignoreIndex", label: "Réindexer les lignes", type: "boolean" },
+    ],
+  },
+  {
+    kind: "cast",
+    label: "Conversion de types",
+    category: "transform",
+    icon: "🔢",
+    color: "#3b82f6",
+    description: "Caster colonnes (int, float, date, texte…)",
+    defaultConfig: { casts: {} },
+    fields: [
+      {
+        key: "casts",
+        label: "Colonne → type",
+        type: "keyvalue",
+        help: "Types : int, float, str, bool, date",
+      },
+    ],
+  },
+  {
+    kind: "split",
+    label: "Découper une colonne",
+    category: "transform",
+    icon: "✂️",
+    color: "#3b82f6",
+    description: "Séparer une colonne texte en plusieurs",
+    defaultConfig: { column: "", delimiter: ",", maxColumns: 5 },
+    fields: [
+      { key: "column", label: "Colonne source", type: "text" },
+      { key: "delimiter", label: "Séparateur", type: "text", placeholder: "," },
+      { key: "maxColumns", label: "Nb max colonnes", type: "number" },
+    ],
+  },
+  {
+    kind: "pivot",
+    label: "Table croisée",
+    category: "transform",
+    icon: "📈",
+    color: "#3b82f6",
+    description: "Pivoter lignes en colonnes (Talend)",
+    defaultConfig: { index: "", columns: "", values: "", aggfunc: "sum" },
+    fields: [
+      { key: "index", label: "Index (lignes)", type: "text" },
+      { key: "columns", label: "Colonnes pivot", type: "text" },
+      { key: "values", label: "Valeurs", type: "text" },
+      { key: "aggfunc", label: "Agrégation", type: "select", options: ["sum", "mean", "count", "min", "max"] },
+    ],
+  },
+  {
+    kind: "validate",
+    label: "Règles de validation",
+    category: "transform",
+    icon: "✅",
+    color: "#16a34a",
+    description: "Contrôles qualité métier (Talend DQ)",
+    defaultConfig: { mode: "reject", rules: [] },
+    fields: [
+      { key: "mode", label: "Mode", type: "select", options: ["reject", "warn", "flag"] },
+      {
+        key: "rules",
+        label: "Règles JSON",
+        type: "rules",
+        help: '[{"column":"montant","rule":"min","value":0},{"column":"email","rule":"regex","value":".+@.+"}]',
+      },
+    ],
+  },
+  {
+    kind: "branch",
+    label: "Branchement IF",
+    category: "transform",
+    icon: "🔀",
+    color: "#8b5cf6",
+    description: "Route les lignes vers Vrai ou Faux (n8n)",
+    defaultConfig: { expression: "" },
+    fields: [
+      {
+        key: "expression",
+        label: "Condition",
+        type: "text",
+        placeholder: "montant > 1000",
+        help: "Connectez la sortie « vrai » ou « faux » aux étapes suivantes.",
+      },
+    ],
   },
   {
     kind: "sql",
-    label: "Transformation SQL",
+    label: "Requête SQL",
     category: "transform",
-    icon: "SQL",
+    icon: "💬",
     color: "#6366f1",
-    description: "Requête SQL sur l'entrée (table « input »)",
+    description: "Interroger vos données en langage SQL",
     defaultConfig: { query: "SELECT * FROM input" },
-    fields: [{ key: "query", label: "Requête SQL", type: "code", placeholder: "SELECT * FROM input WHERE montant > 1000" }],
+    fields: [
+      {
+        key: "query",
+        label: "Votre requête",
+        type: "code",
+        placeholder: "SELECT * FROM input WHERE montant > 1000",
+      },
+    ],
   },
   {
     kind: "custom",
-    label: "Code Python",
+    label: "Transformation avancée",
     category: "transform",
-    icon: "PY",
+    icon: "⚙️",
     color: "#6366f1",
-    description: "Transformation pandas personnalisée",
+    description: "Personnaliser avec du code Python",
     defaultConfig: { code: "" },
     fields: [
       {
         key: "code",
-        label: "Code (variable df)",
+        label: "Instructions",
         type: "code",
         placeholder: "df = df[df['montant'] > 1000]",
-        help: "Le DataFrame d'entrée est `df`. Réassignez `df`.",
+        help: "Les données arrivent dans la variable `df`.",
       },
     ],
   },
   {
     kind: "output",
-    label: "Sortie",
+    label: "Résultat final",
     category: "output",
-    icon: "OUT",
-    color: "#c9a24b",
-    description: "Résultat final du pipeline",
-    defaultConfig: {},
-    fields: [],
+    icon: "✅",
+    color: "#d97706",
+    description: "Destination des données prêtes à l'emploi",
+    defaultConfig: { format: "csv", filename: "resultat", tableName: "dataset" },
+    fields: [
+      {
+        key: "format",
+        label: "Format de stockage",
+        type: "select",
+        options: ["csv", "json", "jsonl", "sqlite", "parquet"],
+        help: "Format utilisé lors du téléchargement (onglet Exporter).",
+      },
+      { key: "filename", label: "Nom du fichier", type: "text", placeholder: "resultat" },
+      { key: "tableName", label: "Table (SQLite)", type: "text", placeholder: "dataset" },
+    ],
   },
 ];
 
 export const SPEC_BY_KIND: Record<string, NodeSpec> = Object.fromEntries(
   NODE_SPECS.map((s) => [s.kind, s])
 );
+
+export const PALETTE_SPECS = NODE_SPECS.filter((s) => !s.hidden);

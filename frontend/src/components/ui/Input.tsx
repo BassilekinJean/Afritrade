@@ -10,19 +10,19 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="flex flex-col gap-1.5">
         {label && (
-          <label htmlFor={inputId} className="text-xs font-medium text-slate-400">
+          <label htmlFor={inputId} className="text-xs font-semibold text-ink/80">
             {label}
           </label>
         )}
         <input
           ref={ref}
           id={inputId}
-          className={`rounded-lg border border-edge bg-ink px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-accent ${className}`}
+          className={`rounded-brand border border-edge bg-surface px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-ink/40 focus:border-accent focus:ring-2 focus:ring-accent/20 ${className}`}
           {...props}
         />
       </div>
     );
-  }
+  },
 );
 
 Input.displayName = "Input";

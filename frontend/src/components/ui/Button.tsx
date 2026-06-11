@@ -1,8 +1,7 @@
-// components/ui/Button.tsx
 import { ButtonHTMLAttributes } from "react";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "ghost" | "danger";
+  variant?: "primary" | "secondary" | "accent" | "ghost" | "danger";
   size?: "sm" | "md" | "lg";
 }
 
@@ -13,18 +12,15 @@ export default function Button({
   className = "",
   ...props
 }: ButtonProps) {
-  const baseStyles =
-    "inline-flex items-center justify-center font-semibold rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2";
+  const base =
+    "inline-flex items-center justify-center font-semibold rounded-brand transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50";
 
   const variants = {
-    primary:
-      "bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500 shadow-sm",
-    secondary:
-      "bg-white text-slate-700 border-2 border-slate-200 hover:bg-slate-50 focus:ring-indigo-500",
-    ghost:
-      "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:ring-slate-300",
-    danger:
-      "bg-red-600 text-white hover:bg-red-700 focus:ring-red-500 shadow-sm",
+    primary: "bg-brand-blue text-white hover:bg-brand-blue-hover focus:ring-brand-blue shadow-sm",
+    accent: "bg-accent text-white hover:bg-accent-hover focus:ring-accent shadow-sm",
+    secondary: "bg-surface text-ink border border-edge hover:bg-muted focus:ring-brand-blue",
+    ghost: "bg-transparent text-ink/70 hover:bg-muted hover:text-ink focus:ring-edge",
+    danger: "bg-bad text-white hover:bg-red-700 focus:ring-bad shadow-sm",
   };
 
   const sizes = {
@@ -34,10 +30,7 @@ export default function Button({
   };
 
   return (
-    <button
-      className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
-      {...props}
-    >
+    <button className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...props}>
       {children}
     </button>
   );

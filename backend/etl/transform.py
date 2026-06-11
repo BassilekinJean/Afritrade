@@ -136,6 +136,114 @@ def t_join(left: pd.DataFrame, right: pd.DataFrame, config: Dict[str, Any]) -> p
         raise PipelineError(f"Jointure impossible : {exc}") from exc
 
 
+def t_lookup(left: pd.DataFrame, right: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Enrichissement par table de référence (lookup Talend)."""
+    cfg = {**config, "how": config.get("how") or "left"}
+    return t_join(left, right, cfg)
+
+
+def t_union(frames: List[pd.DataFrame], config: Dict[str, Any]) -> pd.DataFrame:
+    """Empile plusieurs flux (append / union)."""
+    if len(frames) < 2:
+        raise PipelineError("L'union nécessite au moins deux entrées connectées.")
+    ignore_index = bool(config.get("ignoreIndex", True))
+    try:
+        return pd.concat(frames, ignore_index=ignore_index, sort=False)
+    except Exception as exc:  # noqa: BLE001
+        raise PipelineError(f"Union impossible : {exc}") from exc
+
+
+def t_cast(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Conversion de types de colonnes."""
+    casts = config.get("casts") or config.get("mapping") or {}
+    if not casts:
+        return df
+    out = df.copy()
+    for col, target in casts.items():
+        if col not in out.columns:
+            raise PipelineError(f"Colonne introuvable pour cast : {col}")
+        t = str(target).lower()
+        try:
+            if t in ("int", "integer"):
+                out[col] = pd.to_numeric(out[col], errors="coerce").astype("Int64")
+            elif t in ("float", "number", "decimal"):
+                out[col] = pd.to_numeric(out[col], errors="coerce")
+            elif t in ("str", "text", "string"):
+                out[col] = out[col].astype(str)
+            elif t in ("bool", "boolean"):
+                out[col] = out[col].astype(str).str.lower().isin(("1", "true", "oui", "yes"))
+            elif t in ("date", "datetime"):
+                out[col] = pd.to_datetime(out[col], dayfirst=True, errors="coerce")
+            else:
+                raise PipelineError(f"Type cible inconnu : {target}")
+        except PipelineError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise PipelineError(f"Cast {col} → {target} impossible : {exc}") from exc
+    return out
+
+
+def t_split(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Découpe une colonne texte en plusieurs colonnes."""
+    column = (config.get("column") or "").strip()
+    delimiter = config.get("delimiter") or ","
+    if not column or column not in df.columns:
+        raise PipelineError("Indiquez une colonne à découper.")
+    max_cols = int(config.get("maxColumns") or 10)
+    prefix = config.get("prefix") or f"{column}_"
+    try:
+        expanded = df[column].astype(str).str.split(delimiter, expand=True, n=max_cols - 1)
+        expanded.columns = [f"{prefix}{i + 1}" for i in range(len(expanded.columns))]
+        return pd.concat([df.drop(columns=[column]), expanded], axis=1)
+    except Exception as exc:  # noqa: BLE001
+        raise PipelineError(f"Découpe impossible : {exc}") from exc
+
+
+def t_pivot(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Table croisée dynamique."""
+    index = config.get("index") or config.get("rows")
+    columns = config.get("columns") or config.get("pivotColumn")
+    values = config.get("values") or config.get("valueColumn")
+    agg = config.get("aggfunc") or "sum"
+    if not index or not columns or not values:
+        raise PipelineError("Pivot : indiquez index, columns et values.")
+    if isinstance(index, str):
+        index = [index]
+    for name in list(index) + [columns, values]:
+        if name not in df.columns:
+            raise PipelineError(f"Colonne pivot introuvable : {name}")
+    try:
+        pivoted = df.pivot_table(index=index, columns=columns, values=values, aggfunc=agg, fill_value=0)
+        return pivoted.reset_index()
+    except Exception as exc:  # noqa: BLE001
+        raise PipelineError(f"Pivot impossible : {exc}") from exc
+
+
+def t_validate(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    from .validate import validate_dataframe
+
+    validated, _report = validate_dataframe(df, config)
+    return validated
+
+
+def t_http_request(_df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Ignore l'entrée amont ; exécute une requête HTTP sortante."""
+    from .http_action import http_request_to_dataframe
+
+    return http_request_to_dataframe(config)
+
+
+def t_branch(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Nœud de branchement : le moteur gère les sorties true/false via sourceHandle."""
+    expr = (config.get("expression") or "").strip()
+    if not expr:
+        return df
+    try:
+        return df.query(expr)
+    except Exception as exc:  # noqa: BLE001
+        raise PipelineError(f"Condition de branche invalide « {expr} » : {exc}") from exc
+
+
 # --------------------------------------------------------------------------- #
 #  Sandbox pandas pour le code personnalisé / généré par l'IA
 # --------------------------------------------------------------------------- #
@@ -177,14 +285,26 @@ SINGLE_INPUT_TRANSFORMS = {
     "dedupe": t_dedupe,
     "sql": t_sql,
     "custom": t_custom,
+    "cast": t_cast,
+    "split": t_split,
+    "pivot": t_pivot,
+    "validate": t_validate,
+    "http_request": t_http_request,
+    "branch": t_branch,
     "output": lambda df, _config: df,
 }
 
 # Transformations nécessitant deux entrées.
 MULTI_INPUT_TRANSFORMS = {
     "join": t_join,
+    "lookup": t_lookup,
+}
+
+# Transformations acceptant N entrées (union).
+N_INPUT_TRANSFORMS = {
+    "union": t_union,
 }
 
 
 def list_supported_transforms() -> List[str]:
-    return list(SINGLE_INPUT_TRANSFORMS) + list(MULTI_INPUT_TRANSFORMS)
+    return list(SINGLE_INPUT_TRANSFORMS) + list(MULTI_INPUT_TRANSFORMS) + list(N_INPUT_TRANSFORMS)

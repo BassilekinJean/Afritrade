@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../auth-service";
+import { useAuth } from "../auth";
 import {
   createProject,
   deleteProject,
@@ -11,6 +11,10 @@ import type { ProjectSummary } from "../types";
 import CreateProjectModal from "../components/CreateProjectModal";
 import RenameProjectModal from "../components/RenameProjectModal";
 import ConfirmDeleteDialog from "../components/ConfirmDeleteDialog";
+import ExecutionsPanel from "../components/ExecutionsPanel";
+import ConnectionsPanel from "../components/ConnectionsPanel";
+import { BrandHeader } from "../components/brand/Logo";
+import Icon from "../components/icons/Icons";
 import ContextMenu from "../components/ui/ContextMenu";
 import Button from "../components/ui/Button";
 import Spinner from "../components/ui/Spinner";
@@ -73,9 +77,10 @@ interface SidebarNavItem {
 // CONSTANTES
 // ==========================================
 const SIDEBAR_NAV: SidebarNavItem[] = [
-  { id: "projects", label: "Projets", icon: <FolderIcon className="h-5 w-5" />, badge: "0" },
-  { id: "executions", label: "Exécutions", icon: <PlayIcon className="h-5 w-5" /> },
-  { id: "analytics", label: "Analytiques", icon: <ChartBarIcon className="h-5 w-5" /> },
+  { id: "projects", label: "Projets", icon: <Icon name="folder" size={20} />, badge: "0" },
+  { id: "executions", label: "Exécutions", icon: <Icon name="play" size={20} /> },
+  { id: "connections", label: "Connexions", icon: <Icon name="link" size={20} /> },
+  { id: "analytics", label: "Analytiques", icon: <Icon name="chart" size={20} /> },
   { 
     id: "ai", 
     label: "Assistant IA", 
@@ -207,7 +212,7 @@ export default function Projects() {
   // RENDER
   // ==========================================
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
+    <div className="flex h-screen bg-canvas text-ink font-sans overflow-hidden">
       {/* ========================================== */}
       {/* MOBILE OVERLAY */}
       {/* ========================================== */}
@@ -224,26 +229,19 @@ export default function Projects() {
       <aside
         className={`
           fixed lg:relative z-50 h-full
-          bg-slate-900 text-white flex flex-col
-          transition-all duration-300 ease-in-out
+          bg-brand-blue text-white border-r border-brand-blue-hover flex flex-col
+          transition-all duration-300 ease-in-out shadow-sidebar
           ${sidebarCollapsed ? "w-[72px]" : "w-64"}
           ${mobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
-          shadow-2xl
         `}
       >
         {/* Logo */}
-        <div className="flex items-center justify-between p-5 border-b border-slate-800">
-          <div className="flex items-center gap-3 overflow-hidden">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-500 via-blue-500 to-cyan-500 flex items-center justify-center text-lg font-black text-white shadow-lg shadow-indigo-500/30 flex-shrink-0">
-              ⇄
-            </div>
-            {!sidebarCollapsed && (
-              <div className="overflow-hidden whitespace-nowrap">
-                <h1 className="text-lg font-bold leading-tight">
-                  AAPRO<span className="text-indigo-400">VIDIR</span>
-                </h1>
-                <p className="text-[10px] text-slate-400 leading-tight">Pipeline Builder</p>
-              </div>
+        <div className="flex items-center justify-between p-5 border-b border-white/10">
+          <div className={`overflow-hidden ${sidebarCollapsed ? "mx-auto" : ""}`}>
+            {sidebarCollapsed ? (
+              <img src="/brand/logo-icon-white.png" alt="Aaprovidir" className="h-9 w-9 object-contain" />
+            ) : (
+              <BrandHeader dark />
             )}
           </div>
           
@@ -258,6 +256,18 @@ export default function Projects() {
 
         {/* Main Navigation */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto scrollbar-thin">
+          {user?.role === "admin" && (
+            <button
+              onClick={() => navigate("/admin")}
+              title="Administration"
+              className={`mb-2 flex w-full items-center gap-3 rounded-brand border border-white/20 bg-white/5 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 ${
+                sidebarCollapsed ? "justify-center" : ""
+              }`}
+            >
+              <Cog6ToothIcon className="h-5 w-5 flex-shrink-0" />
+              {!sidebarCollapsed && <span>Administration</span>}
+            </button>
+          )}
           {SIDEBAR_NAV.map((item) => (
             <SidebarNavItem
               key={item.id}
@@ -275,7 +285,7 @@ export default function Projects() {
         </nav>
 
         {/* Bottom Navigation */}
-        <div className="px-3 py-2 space-y-1 border-t border-slate-800">
+        <div className="px-3 py-2 space-y-1 border-t border-edge">
           {SIDEBAR_BOTTOM.map((item) => (
             <SidebarNavItem
               key={item.id}
@@ -291,22 +301,22 @@ export default function Projects() {
         </div>
 
         {/* User Section */}
-        <div className="p-3 border-t border-slate-800">
+        <div className="p-3 border-t border-edge">
           <div className="relative">
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className={`w-full flex items-center gap-3 p-2 rounded-lg hover:bg-slate-800 transition-colors ${
+              className={`w-full flex items-center gap-3 p-2 rounded-lg hover:bg-muted transition-colors ${
                 sidebarCollapsed ? "justify-center" : ""
               }`}
             >
-              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center text-sm font-bold text-white flex-shrink-0 shadow-lg">
-                {user?.email?.[0]?.toUpperCase() ?? "?"}
+              <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-sm font-bold text-white flex-shrink-0 shadow-sm">
+                {user?.username?.[0]?.toUpperCase() ?? "?"}
               </div>
               {!sidebarCollapsed && (
                 <>
                   <div className="flex-1 text-left overflow-hidden">
-                    <p className="text-sm font-medium truncate">{user?.email}</p>
-                    <p className="text-xs text-slate-400">Analyste</p>
+                    <p className="text-sm font-medium truncate">{user?.full_name || user?.username}</p>
+                    <p className="text-xs text-slate-400">{user?.role === "admin" ? "Administrateur" : "Analyste"}</p>
                   </div>
                   <ChevronDownIcon className={`h-4 w-4 text-slate-400 transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
                 </>
@@ -317,11 +327,25 @@ export default function Projects() {
             {userMenuOpen && (
               <div className={`absolute ${sidebarCollapsed ? "left-full bottom-0 ml-2 w-56" : "bottom-full left-0 right-0 mb-2"} bg-slate-800 rounded-xl border border-slate-700 shadow-2xl overflow-hidden`}>
                 <div className="px-4 py-3 border-b border-slate-700">
-                  <p className="text-sm font-medium truncate">{user?.email}</p>
-                  <p className="text-xs text-slate-400">Compte gratuit</p>
+                  <p className="text-sm font-medium truncate">{user?.full_name || user?.username}</p>
+                  <p className="text-xs text-slate-400">
+                    @{user?.username} · {user?.role === "admin" ? "Administrateur" : "Utilisateur"}
+                  </p>
                 </div>
                 <div className="py-1">
-                  <button className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 transition-colors">
+                  {user?.role === "admin" && (
+                    <button
+                      onClick={() => navigate("/admin")}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-indigo-300 hover:bg-slate-700 transition-colors"
+                    >
+                      <Cog6ToothIcon className="h-4 w-4" />
+                      Administration
+                    </button>
+                  )}
+                  <button
+                    onClick={() => navigate("/profil")}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 transition-colors"
+                  >
                     <UserCircleIcon className="h-4 w-4" />
                     Profil
                   </button>
@@ -362,7 +386,7 @@ export default function Projects() {
         {/* ========================================== */}
         {/* TOP BAR */}
         {/* ========================================== */}
-        <header className="bg-white border-b border-slate-200 shadow-sm">
+        <header className="bg-surface border-b border-edge shadow-sm">
           <div className="px-4 sm:px-6 py-3">
             <div className="flex items-center gap-4">
               {/* Mobile menu trigger */}
@@ -376,10 +400,10 @@ export default function Projects() {
               </button>
 
               {/* Breadcrumb */}
-              <div className="hidden sm:flex items-center gap-2 text-sm text-slate-500">
-                <span className="text-slate-400">Accueil</span>
+              <div className="hidden sm:flex items-center gap-2 text-sm text-ink/50">
+                <span>Aaprovidir</span>
                 <ChevronRightIcon className="h-4 w-4" />
-                <span className="font-medium text-slate-700">Projets</span>
+                <span className="font-semibold text-brand-blue">DataPipe</span>
               </div>
 
               {/* Spacer */}
@@ -477,7 +501,7 @@ export default function Projects() {
               {/* Create button (desktop) */}
               <Button
                 onClick={() => setCreating(true)}
-                className="hidden lg:inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/25 px-4 py-2"
+                className="hidden lg:inline-flex items-center gap-2 bg-primary hover:bg-primary-hover text-white shadow-sm px-4 py-2"
               >
                 <PlusIcon className="h-4 w-4" />
                 Nouveau projet
@@ -489,8 +513,17 @@ export default function Projects() {
         {/* ========================================== */}
         {/* PAGE CONTENT */}
         {/* ========================================== */}
-        <div className="flex-1 overflow-y-auto bg-slate-50">
+        <div className="flex-1 overflow-y-auto bg-canvas">
           <div className="p-4 sm:p-6 space-y-6">
+            {activeNav === "executions" && <ExecutionsPanel />}
+            {activeNav === "connections" && <ConnectionsPanel />}
+            {activeNav !== "projects" && activeNav !== "executions" && activeNav !== "connections" && (
+              <p className="rounded-xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+                Section « {activeNav} » — à venir.
+              </p>
+            )}
+            {activeNav === "projects" && (
+            <>
             {/* ========================================== */}
             {/* STATS CARDS */}
             {/* ========================================== */}
@@ -526,21 +559,18 @@ export default function Projects() {
             {/* WELCOME BANNER (si vide) */}
             {/* ========================================== */}
             {projects.length === 0 && !loading && !error && (
-              <div className="relative overflow-hidden bg-gradient-to-br from-indigo-600 via-blue-600 to-purple-700 rounded-2xl p-6 sm:p-8 text-white shadow-xl">
-                {/* Background pattern */}
-                <div className="absolute inset-0 opacity-10">
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-white rounded-full blur-3xl" />
-                  <div className="absolute bottom-0 left-0 w-48 h-48 bg-cyan-400 rounded-full blur-3xl" />
+              <div className="relative overflow-hidden rounded-brand bg-brand-blue p-6 sm:p-8 text-white shadow-card">
+                <div className="absolute inset-0 opacity-20">
+                  <div className="absolute top-0 right-0 h-64 w-64 rounded-full bg-brand-cyan blur-3xl" />
+                  <div className="absolute bottom-0 left-0 h-48 w-48 rounded-full bg-brand-yellow blur-3xl" />
                 </div>
-                
-                <div className="relative flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+                <div className="relative flex flex-col items-start justify-between gap-6 lg:flex-row lg:items-center">
                   <div>
-                    <h2 className="text-xl sm:text-2xl font-bold mb-2">
-                      👋 Bienvenue sur AAPROVIDIR
-                    </h2>
-                    <p className="text-indigo-100 text-sm sm:text-base max-w-lg">
-                      Créez votre premier pipeline ETL en quelques clics. Glissez-déposez vos sources,
-                      enchaînez les transformations, et laissez l'IA vous assister.
+                    <p className="brand-kicker mb-2 text-brand-cyan-pale">Bienvenue</p>
+                    <h2 className="text-xl font-bold sm:text-2xl">Votre espace de traitement de données</h2>
+                    <p className="mt-2 max-w-lg text-sm text-white/75">
+                      Créez un pipeline ETL visuel : importez vos sources, enchaînez les transformations,
+                      contrôlez la qualité et exportez — avec traçabilité complète.
                     </p>
                     <div className="flex flex-wrap gap-3 mt-5">
                       <Button
@@ -708,6 +738,8 @@ export default function Projects() {
                 </div>
               </div>
             )}
+            </>
+            )}
           </div>
         </div>
       </main>
@@ -777,10 +809,10 @@ function SidebarNavItem({
     <div>
       <button
         onClick={hasChildren ? onToggle : onClick}
-        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm group ${
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-brand transition-all text-sm group ${
           active
-            ? "bg-indigo-600/10 text-indigo-400 font-semibold border border-indigo-500/20"
-            : "text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent"
+            ? "bg-white/12 text-white font-semibold ring-1 ring-white/15"
+            : "text-white/65 hover:text-white hover:bg-white/6"
         } ${collapsed ? "justify-center" : ""}`}
         title={collapsed ? item.label : undefined}
       >
@@ -792,7 +824,7 @@ function SidebarNavItem({
             
             {item.badge && (
               <span className={`px-2 py-0.5 text-[10px] rounded-full font-medium ${
-                active ? "bg-indigo-600 text-white" : "bg-slate-700 text-slate-300"
+                active ? "bg-brand-yellow text-brand-blue" : "bg-white/10 text-white/70"
               }`}>
                 {item.badge}
               </span>
@@ -840,16 +872,16 @@ function StatCard({
   trend?: string;
 }) {
   const colorMap = {
-    indigo: { bg: "bg-indigo-50", text: "text-indigo-600", icon: "text-indigo-500" },
-    emerald: { bg: "bg-emerald-50", text: "text-emerald-600", icon: "text-emerald-500" },
-    amber: { bg: "bg-amber-50", text: "text-amber-600", icon: "text-amber-500" },
-    purple: { bg: "bg-purple-50", text: "text-purple-600", icon: "text-purple-500" },
+    indigo: { bg: "bg-brand-blue-pale", text: "text-brand-blue", icon: "text-brand-blue" },
+    emerald: { bg: "bg-brand-green-pale", text: "text-good", icon: "text-good" },
+    amber: { bg: "bg-brand-yellow-pale", text: "text-brand-blue", icon: "text-brand-yellow" },
+    purple: { bg: "bg-brand-cyan-pale", text: "text-accent", icon: "text-accent" },
   };
 
   const colors = colorMap[color];
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all duration-300 hover:border-slate-300">
+    <div className="bg-surface rounded-brand border border-edge p-5 shadow-card hover:shadow-md transition-all duration-300 hover:border-brand-blue-pale">
       <div className="flex items-start justify-between mb-3">
         <div className={`h-10 w-10 rounded-lg ${colors.bg} flex items-center justify-center ${colors.icon}`}>
           {icon}
@@ -863,8 +895,8 @@ function StatCard({
           </span>
         )}
       </div>
-      <p className="text-2xl font-bold text-slate-900">{value}</p>
-      <p className="text-xs text-slate-500 mt-1">{label}</p>
+      <p className="text-2xl font-bold text-brand-blue">{value}</p>
+      <p className="text-xs text-ink/60 mt-1">{label}</p>
     </div>
   );
 }

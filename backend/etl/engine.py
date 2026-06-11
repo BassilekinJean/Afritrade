@@ -34,7 +34,17 @@ from .errors import PipelineError
 from .extract import EXTRACTORS
 from .staging import Layer, store
 from .standardize import standardize
-from .transform import MULTI_INPUT_TRANSFORMS, SINGLE_INPUT_TRANSFORMS
+from .transform import MULTI_INPUT_TRANSFORMS, N_INPUT_TRANSFORMS, SINGLE_INPUT_TRANSFORMS
+
+
+@dataclass
+class BranchFrames:
+    """Sorties d'un nœud de branchement conditionnel (style n8n IF)."""
+    true_df: pd.DataFrame
+    false_df: pd.DataFrame
+
+
+NodeFrame = pd.DataFrame | BranchFrames
 
 
 @dataclass
@@ -42,6 +52,7 @@ class NodeResult:
     node_id: str
     phase: str
     frame: Optional[pd.DataFrame] = None
+    branch: Optional[BranchFrames] = None
     preview: Dict[str, Any] = field(default_factory=dict)
     staged: Dict[str, str] = field(default_factory=dict)
     error: Optional[str] = None
@@ -52,11 +63,11 @@ class NodeResult:
 #  Classification des nodes par phase ETL
 # --------------------------------------------------------------------------- #
 def _phase_of(ntype: str) -> str:
-    if ntype in EXTRACTORS:
+    if ntype in EXTRACTORS or ntype.startswith("trigger_"):
         return "extract"
     if ntype == "output":
         return "load"
-    if ntype in MULTI_INPUT_TRANSFORMS or ntype in SINGLE_INPUT_TRANSFORMS:
+    if ntype in MULTI_INPUT_TRANSFORMS or ntype in SINGLE_INPUT_TRANSFORMS or ntype in N_INPUT_TRANSFORMS:
         return "transform"
     return "unknown"
 
@@ -66,10 +77,11 @@ def _phase_of(ntype: str) -> str:
 # --------------------------------------------------------------------------- #
 def _build_levels(
     nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]
-) -> tuple[Dict[str, List[str]], List[List[str]]]:
+) -> tuple[Dict[str, List[str]], Dict[str, Dict[str, str]], List[List[str]]]:
     nodes_by_id = {n["id"]: n for n in nodes}
     parents: Dict[str, List[str]] = defaultdict(list)
     children: Dict[str, List[str]] = defaultdict(list)
+    edge_handles: Dict[str, Dict[str, str]] = defaultdict(dict)
     indegree: Dict[str, int] = {n["id"]: 0 for n in nodes}
 
     for edge in edges:
@@ -78,6 +90,8 @@ def _build_levels(
             continue
         parents[tgt].append(src)
         children[src].append(tgt)
+        handle = edge.get("sourceHandle") or (edge.get("data") or {}).get("sourceHandle") or "true"
+        edge_handles[tgt][src] = str(handle)
         indegree[tgt] += 1
 
     # Tri topologique de Kahn + calcul du niveau (plus long chemin depuis une racine).
@@ -100,7 +114,21 @@ def _build_levels(
     for nid in order:
         grouped[level.get(nid, 0)].append(nid)
     levels = [grouped[k] for k in sorted(grouped)]
-    return parents, levels
+    return parents, dict(edge_handles), levels
+
+
+def _resolve_parent_frame(
+    parent_id: str,
+    child_id: str,
+    parent_result: NodeFrame,
+    edge_handles: Dict[str, Dict[str, str]],
+) -> Optional[pd.DataFrame]:
+    if isinstance(parent_result, BranchFrames):
+        handle = edge_handles.get(child_id, {}).get(parent_id, "true")
+        return parent_result.false_df if handle == "false" else parent_result.true_df
+    if isinstance(parent_result, pd.DataFrame):
+        return parent_result
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -125,7 +153,14 @@ def _execute_node(
             raw = EXTRACTORS[ntype](cfg, datasets)
             res.staged["raw"] = store.write(Layer.RAW, f"{config.RAW_PREFIX}_{nid}", raw)
             # STANDARDIZE -> CLEAN
-            clean, report = standardize(raw)
+            norm_opts = cfg.get("normalizeOptions") or {}
+            clean, report = standardize(
+                raw,
+                drop_empty_rows=norm_opts.get("dropEmptyRows", True),
+                drop_null_column_pct=float(norm_opts.get("dropNullColumnPct") or 0),
+                fill_numeric_nulls=str(norm_opts.get("fillNumericNulls") or "none"),
+                drop_duplicates=bool(norm_opts.get("dropDuplicates")),
+            )
             res.staged["clean"] = store.write(Layer.CLEAN, f"{config.CLEAN_PREFIX}_{nid}", clean)
             res.frame = clean
             res.preview = _frame_to_preview(clean, max_preview_rows)
@@ -139,14 +174,48 @@ def _execute_node(
             res.frame = df
             res.preview = _frame_to_preview(df, max_preview_rows)
 
+        elif ntype in N_INPUT_TRANSFORMS:
+            if len(parent_frames) < 2:
+                raise PipelineError("Cette transformation nécessite au moins deux entrées connectées.")
+            df = N_INPUT_TRANSFORMS[ntype](parent_frames, cfg)
+            res.staged["work"] = store.write(Layer.CLEAN, f"{config.WORK_PREFIX}_{nid}", df)
+            res.frame = df
+            res.preview = _frame_to_preview(df, max_preview_rows)
+
+        elif ntype == "branch":
+            if not parent_frames:
+                raise PipelineError("Le branchement conditionnel nécessite une entrée.")
+            df_in = parent_frames[0]
+            expr = (cfg.get("expression") or "").strip()
+            if expr:
+                true_df = df_in.query(expr)
+                false_df = df_in.drop(true_df.index)
+            else:
+                true_df, false_df = df_in, df_in.iloc[0:0].copy()
+            res.frame = true_df
+            res.preview = _frame_to_preview(true_df, max_preview_rows)
+            res.preview["branch"] = {
+                "trueCount": int(len(true_df)),
+                "falseCount": int(len(false_df)),
+                "expression": expr,
+            }
+            res.staged["work"] = store.write(Layer.CLEAN, f"{config.WORK_PREFIX}_{nid}_true", true_df)
+            res.branch = BranchFrames(true_df=true_df, false_df=false_df)
+
         elif ntype == "output":
-            # LOAD -> WAREHOUSE
+            # LOAD -> WAREHOUSE (+ métadonnées d'export)
             if not parent_frames:
                 raise PipelineError("Le node de sortie n'a aucune entrée connectée.")
             df = parent_frames[0]
             res.staged["warehouse"] = store.write(Layer.WAREHOUSE, f"{config.GOLD_PREFIX}_{nid}", df)
             res.frame = df
             res.preview = _frame_to_preview(df, max_preview_rows)
+            from .export_fmt import export_preview_meta
+
+            out_fmt = (cfg.get("format") or "csv").lower()
+            res.preview["export"] = export_preview_meta(df, out_fmt)
+            res.preview["export"]["filename"] = cfg.get("filename") or "resultat"
+            res.preview["export"]["tableName"] = cfg.get("tableName") or "dataset"
 
         elif ntype in SINGLE_INPUT_TRANSFORMS:
             if not parent_frames:
@@ -187,9 +256,9 @@ def execute_graph(
         return {"previews": {}, "finalNodeId": None, "final": None,
                 "etl": {"levels": [], "phases": {}, "durationMs": 0}}
 
-    parents, levels = _build_levels(nodes, edges)
+    parents, edge_handles, levels = _build_levels(nodes, edges)
 
-    results: Dict[str, pd.DataFrame] = {}
+    results: Dict[str, NodeFrame] = {}
     previews: Dict[str, Any] = {}
     order: List[str] = []
     total_started = time.perf_counter()
@@ -220,7 +289,12 @@ def execute_graph(
                     pool.submit(
                         _execute_node,
                         node,
-                        [results[p] for p in parents.get(node["id"], []) if p in results],
+                        [
+                            _resolve_parent_frame(p, node["id"], results[p], edge_handles)
+                            for p in parents.get(node["id"], [])
+                            if p in results
+                            and _resolve_parent_frame(p, node["id"], results[p], edge_handles) is not None
+                        ],
                         datasets,
                         max_preview_rows,
                     )
@@ -230,8 +304,11 @@ def execute_graph(
 
         for nr in node_results:
             previews[nr.node_id] = nr.preview
-            if nr.frame is not None and nr.error is None:
-                results[nr.node_id] = nr.frame
+            if nr.error is None:
+                if nr.branch is not None:
+                    results[nr.node_id] = nr.branch
+                elif nr.frame is not None:
+                    results[nr.node_id] = nr.frame
 
         level_report.append({
             "level": level_idx,
@@ -241,11 +318,15 @@ def execute_graph(
 
     final_id = next(
         (nid for nid in reversed(order)
-         if nodes_by_id[nid].get("type") == "output" and nid in results),
+         if nodes_by_id[nid].get("type") == "output" and nid in results
+         and not isinstance(results[nid], BranchFrames)),
         None,
     )
     if final_id is None:
-        final_id = next((nid for nid in reversed(order) if nid in results), None)
+        final_id = next(
+            (nid for nid in reversed(order) if nid in results and not isinstance(results[nid], BranchFrames)),
+            None,
+        )
 
     phases_count: Dict[str, int] = defaultdict(int)
     for nid in order:
@@ -281,14 +362,26 @@ def preview_source(
     colonnes détectées, les types inférés et les premières lignes harmonisées
     (dates JJ-MM-AAAA, nombres normalisés), avant même de lancer le pipeline.
     """
+    from .kind_detect import node_kind_for_source_kind
+
     kind_l = (kind or "").lower()
-    cfg: Dict[str, Any] = {"content": content}
+    cfg: Dict[str, Any] = {"content": content, "sourceKind": kind_l}
     if kind_l in ("sql", "sqlite"):
         ntype = "source_sql_file"
         if table:
             cfg["table"] = table
     elif kind_l == "json":
         ntype = "source_json"
+    elif kind_l in ("excel", "pdf", "word", "txt", "markup"):
+        ntype = node_kind_for_source_kind(kind_l)
+    elif kind_l == "html":
+        from .extract import _html_to_df
+
+        raw = _html_to_df(content, "aperçu")
+        clean, report = standardize(raw)
+        preview = _frame_to_preview(clean, max_rows)
+        preview["standardization"] = report.as_dict()
+        return preview
     else:
         ntype = "source_csv"
         if delimiter:

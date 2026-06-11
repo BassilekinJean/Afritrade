@@ -1,56 +1,61 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import type { ReactNode } from "react";
-import { useAuth, ProtectedRoute } from "./auth-service";
-import Spinner from "./components/ui/Spinner";
-
-const RouteSpinner = (
-  <div className="flex h-screen items-center justify-center bg-ink">
-    <Spinner />
-  </div>
-);
-import Home from "./pages/Home";
+import { useAuth, ProtectedRoute } from "./auth";
 import Login from "./pages/Login";
-import Signup from "./pages/Signup";
+import Projects from "./pages/Projects";
+import Profile from "./pages/Profile";
+import AdminDashboard from "./pages/AdminDashboard";
+import DemoEditor from "./pages/DemoEditor";
 import ProjectEditor from "./pages/ProjectEditor";
 import NotFound from "./pages/NotFound";
+import Spinner from "./components/ui/Spinner";
 
-function PublicOnlyRoute({ children }: { children: ReactNode }) {
+function LoginRoute() {
   const { user, loading } = useAuth();
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-ink">
+      <div className="flex h-screen items-center justify-center bg-brand-blue">
         <Spinner />
       </div>
     );
   }
   if (user) return <Navigate to="/" replace />;
-  return <>{children}</>;
+  return <Login />;
 }
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route path="/login" element={<LoginRoute />} />
+      <Route path="/demo" element={<DemoEditor />} />
+
       <Route
-        path="/login"
+        path="/"
         element={
-          <PublicOnlyRoute>
-            <Login />
-          </PublicOnlyRoute>
+          <ProtectedRoute>
+            <Projects />
+          </ProtectedRoute>
         }
       />
       <Route
-        path="/signup"
+        path="/profil"
         element={
-          <PublicOnlyRoute>
-            <Signup />
-          </PublicOnlyRoute>
+          <ProtectedRoute>
+            <Profile />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute requireAdmin>
+            <AdminDashboard />
+          </ProtectedRoute>
         }
       />
       <Route
         path="/projets/:idProjet"
         element={
-          <ProtectedRoute redirectTo="/login" fallback={RouteSpinner}>
+          <ProtectedRoute>
             <ProjectEditor />
           </ProtectedRoute>
         }

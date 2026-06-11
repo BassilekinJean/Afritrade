@@ -187,8 +187,21 @@ def _try_datetime(series: pd.Series, column_name: str) -> Optional[pd.Series]:
 # --------------------------------------------------------------------------- #
 #  Standardisation principale
 # --------------------------------------------------------------------------- #
-def standardize(df: pd.DataFrame) -> tuple[pd.DataFrame, StandardizationReport]:
-    """Normalise un DataFrame brut et renvoie (df_normalisé, rapport d'audit)."""
+def standardize(
+    df: pd.DataFrame,
+    *,
+    drop_empty_rows: bool = True,
+    drop_null_column_pct: float = 0.0,
+    fill_numeric_nulls: str = "none",
+    drop_duplicates: bool = False,
+) -> tuple[pd.DataFrame, StandardizationReport]:
+    """Normalise un DataFrame brut et renvoie (df_normalisé, rapport d'audit).
+
+    Options (niveau data engineer) :
+      - drop_null_column_pct : supprime les colonnes dont le % de NA dépasse ce seuil (0 = désactivé).
+      - fill_numeric_nulls   : « none » | « zero » | « median » pour les colonnes numériques.
+      - drop_duplicates      : supprime les lignes en double après nettoyage.
+    """
     report = StandardizationReport(rows_in=int(len(df)))
     df = df.copy()
 
@@ -201,10 +214,18 @@ def standardize(df: pd.DataFrame) -> tuple[pd.DataFrame, StandardizationReport]:
         if df[col].dtype == object:
             df[col] = df[col].map(_clean_string_cell)
 
-    # Suppression des lignes entièrement vides.
-    before = len(df)
-    df = df.dropna(how="all").reset_index(drop=True)
-    report.dropped_empty_rows = before - len(df)
+    if drop_empty_rows:
+        before = len(df)
+        df = df.dropna(how="all").reset_index(drop=True)
+        report.dropped_empty_rows = before - len(df)
+
+    if drop_null_column_pct > 0 and len(df.columns):
+        to_drop = [
+            c for c in df.columns
+            if df[c].isna().mean() * 100 > drop_null_column_pct
+        ]
+        if to_drop:
+            df = df.drop(columns=to_drop)
 
     # Inférence de type colonne par colonne : booléen -> nombre -> date -> texte.
     inferred_types: Dict[str, str] = {}
@@ -234,6 +255,18 @@ def standardize(df: pd.DataFrame) -> tuple[pd.DataFrame, StandardizationReport]:
 
         df[col] = series.astype("string")
         inferred_types[col] = "text"
+
+    if fill_numeric_nulls in ("zero", "median"):
+        for col in df.columns:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                if fill_numeric_nulls == "zero":
+                    df[col] = df[col].fillna(0)
+                else:
+                    med = df[col].median()
+                    df[col] = df[col].fillna(med if pd.notna(med) else 0)
+
+    if drop_duplicates and len(df):
+        df = df.drop_duplicates().reset_index(drop=True)
 
     report.rows_out = int(len(df))
     for original, norm in zip(originals, normalized):

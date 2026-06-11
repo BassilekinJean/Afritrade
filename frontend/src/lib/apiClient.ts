@@ -1,24 +1,23 @@
-import { getSupabaseClient } from "../auth-service/config/supabaseClient";
+/**
+ * Client HTTP de DataPipe — authentification par JWT local (sans Supabase).
+ *
+ * Le jeton renvoyé par /api/auth/login est conservé en localStorage et envoyé
+ * dans l'en-tête Authorization de chaque requête authentifiée.
+ */
 
-const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL ?? "http://localhost:8000").replace(/\/$/, "");
-const BASE = `${BACKEND_URL}/api`;
+const TOKEN_KEY = "datapipe_token";
 
-/** Jeton d'accès courant fourni par la session Supabase (ou null si déconnecté). */
-async function getAccessToken(): Promise<string | null> {
-  try {
-    const supabase = getSupabaseClient();
+// En dev sans VITE_BACKEND_URL : on passe par le proxy Vite (/api → :8000).
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL?.replace(/\/$/, "");
+const BASE = BACKEND_URL ? `${BACKEND_URL}/api` : "/api";
 
-    const {
-      data: { session },
-      error,
-    } = await supabase.auth.getSession();
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
 
-    if (error || !session) return null;
-
-    return session.access_token;
-  } catch {
-    return null;
-  }
+export function setToken(token: string | null): void {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
 }
 
 export class ApiError extends Error {
@@ -27,6 +26,17 @@ export class ApiError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+function parseApiDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((x) => (typeof x === "object" && x && "msg" in x ? String((x as { msg: string }).msg) : ""))
+      .filter(Boolean);
+    if (msgs.length) return msgs.join(", ");
+  }
+  return fallback;
 }
 
 type Options = {
@@ -41,7 +51,7 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
   const headers: Record<string, string> = {};
 
   if (auth) {
-    const token = await getAccessToken();
+    const token = getToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
 
@@ -60,16 +70,16 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
     throw new ApiError(0, "Impossible de joindre le serveur. Vérifie qu'il est démarré.");
   }
 
-  // NB : on ne déconnecte PAS la session Supabase sur un 401 du backend. La
-  // session est gérée par Supabase côté front ; un 401 backend signifie
-  // seulement que l'API n'a pas (encore) validé le jeton, et ne doit pas
-  // renvoyer l'utilisateur vers le landing.
+  // Jeton invalide/expiré : on purge la session locale.
+  if (res.status === 401) {
+    setToken(null);
+  }
 
   if (!res.ok) {
     let detail = `Erreur ${res.status}`;
     try {
       const data = await res.json();
-      detail = data.detail || detail;
+      detail = parseApiDetail(data.detail, detail);
     } catch {
       /* ignore */
     }
@@ -78,6 +88,30 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
 
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+async function download(path: string, body: unknown, auth = true): Promise<{ blob: Blob; filename: string }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (auth) {
+    const token = getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${BASE}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+  if (res.status === 401) setToken(null);
+  if (!res.ok) {
+    let detail = `Erreur ${res.status}`;
+    try {
+      const data = await res.json();
+      detail = parseApiDetail(data.detail, detail);
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(res.status, detail);
+  }
+  const disp = res.headers.get("Content-Disposition") || "";
+  const match = /filename="?([^"]+)"?/.exec(disp);
+  const filename = match?.[1] || "export.dat";
+  return { blob: await res.blob(), filename };
 }
 
 export const apiClient = {
@@ -89,4 +123,5 @@ export const apiClient = {
   delete: <T>(path: string, auth = true) => request<T>(path, { method: "DELETE", auth }),
   upload: <T>(path: string, formData: FormData, auth = true) =>
     request<T>(path, { method: "POST", formData, auth }),
+  download,
 };

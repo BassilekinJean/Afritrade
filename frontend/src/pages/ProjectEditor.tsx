@@ -18,6 +18,14 @@ import "reactflow/dist/style.css";
 
 import Palette from "../components/Palette";
 import ConfigPanel from "../components/ConfigPanel";
+import SourceImportPanel, { type SourceImportResult } from "../components/SourceImportPanel";
+import DataQualityPanel from "../components/DataQualityPanel";
+import ExportPanel from "../components/ExportPanel";
+import AutomationPanel from "../components/AutomationPanel";
+import { LogoMark } from "../components/brand/Logo";
+import Icon from "../components/icons/Icons";
+import WorkflowStepper from "../components/WorkflowStepper";
+import type { NormalizeOptions } from "../types";
 import PreviewPanel from "../components/PreviewPanel";
 import AIAssistant from "../components/AIAssistant";
 import PipeNode from "../components/PipeNode";
@@ -52,17 +60,19 @@ function makeNode(kind: NodeKind, position: { x: number; y: number }, config?: a
   };
 }
 
-type Tab = "config" | "preview" | "ai";
+type Tab = "import" | "quality" | "config" | "preview" | "export" | "ai" | "automation";
 type SaveState = "idle" | "saving" | "saved" | "error";
 
-interface EditorProps {
+export interface EditorProps {
   projectId: string;
   initialTitle: string;
   initialNodes: Node<PipeNodeData>[];
   initialEdges: Edge[];
+  /** Mode démo : pas de sauvegarde cloud, interface simplifiée. */
+  demo?: boolean;
 }
 
-function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorProps) {
+export function PipelineEditor({ projectId, initialTitle, initialNodes, initialEdges, demo = false }: EditorProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [title, setTitle] = useState(initialTitle);
@@ -70,7 +80,7 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
   const [previews, setPreviews] = useState<Record<string, TablePreview>>({});
   const [result, setResult] = useState<RunResult | null>(null);
   const [running, setRunning] = useState(false);
-  const [tab, setTab] = useState<Tab>("config");
+  const [tab, setTab] = useState<Tab>("import");
   const [aiKey, setAiKey] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -90,7 +100,7 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
 
   // Autosave debounce : sauvegarde le graphe + titre après modification.
   useEffect(() => {
-    if (!dirtyRef.current) return;
+    if (demo || !dirtyRef.current) return;
     setSaveState("saving");
     const handle = setTimeout(async () => {
       try {
@@ -108,7 +118,7 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
       }
     }, 800);
     return () => clearTimeout(handle);
-  }, [nodes, edges, title, projectId]);
+  }, [demo, nodes, edges, title, projectId]);
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
@@ -161,15 +171,61 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
   );
 
   const addNodeAt = useCallback(
-    (kind: NodeKind, position?: { x: number; y: number }) => {
+    (kind: NodeKind, position?: { x: number; y: number }, config?: Record<string, unknown>) => {
       markDirty();
       const pos = position ?? { x: 200 + Math.random() * 200, y: 120 + Math.random() * 200 };
-      const node = makeNode(kind, pos);
+      const node = makeNode(kind, pos, config);
       setNodes((nds) => [...nds, node]);
       setSelectedId(node.id);
       setTab("config");
     },
     [setNodes, markDirty]
+  );
+
+  const sourceNodes = useMemo(
+    () => nodes.filter((n) => n.data.kind.startsWith("source_")),
+    [nodes],
+  );
+
+  const hasSourceNode = sourceNodes.length > 0;
+
+  const hasOutputNode = useMemo(
+    () => nodes.some((n) => n.data.kind === "output"),
+    [nodes],
+  );
+
+  const handleSourceImported = useCallback(
+    (result: SourceImportResult) => {
+      markDirty();
+      const sourceCount = sourceNodes.length;
+      const pos = { x: 60 + sourceCount * 220, y: 80 + (sourceCount % 2) * 100 };
+      const node = makeNode(result.kind, pos, result.config);
+      node.data.label = result.label;
+      setNodes((nds) => [...nds, node]);
+      setSelectedId(node.id);
+      setTab("quality");
+    },
+    [sourceNodes.length, setNodes, markDirty],
+  );
+
+  const handleApplyNormalize = useCallback(
+    (options: NormalizeOptions) => {
+      markDirty();
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.data.kind.startsWith("source_")
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  config: { ...n.data.config, normalizeOptions: options, normalized: true },
+                },
+              }
+            : n,
+        ),
+      );
+    },
+    [setNodes, markDirty],
   );
 
   const onDrop = useCallback(
@@ -277,7 +333,7 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
     setRunning(true);
     setRunError(null);
     try {
-      const res = await runPipeline(nodes, edges);
+      const res = await runPipeline(nodes, edges, demo ? undefined : projectId);
       setResult(res);
       setPreviews(res.previews);
       setNodes((nds) =>
@@ -293,7 +349,7 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
     } finally {
       setRunning(false);
     }
-  }, [nodes, edges, setNodes]);
+  }, [nodes, edges, setNodes, demo, projectId]);
 
   const activePreview = useMemo(() => {
     if (selectedId && previews[selectedId]) return previews[selectedId];
@@ -313,39 +369,43 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
   }[saveState];
 
   return (
-    <div className="flex h-screen flex-col bg-ink">
+    <div className="flex h-screen flex-col bg-canvas">
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-edge bg-panel px-5 py-3">
+      <header className="flex items-center justify-between border-b border-edge bg-surface px-5 py-3 shadow-sm">
         <div className="flex items-center gap-3">
-          <Link
-            to="/"
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-panel2 text-slate-300 transition hover:bg-edge hover:text-slate-100"
-            aria-label="Retour aux projets"
-          >
-            ←
-          </Link>
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10 text-accent ring-1 ring-accent/30">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="5" cy="6" r="2.2" />
-              <circle cx="5" cy="18" r="2.2" />
-              <circle cx="19" cy="12" r="2.2" />
-              <path d="M7 6.9 16.8 11M7 17.1 16.8 13" />
-            </svg>
-          </div>
-          <input
-            value={title}
-            onChange={(e) => {
-              markDirty();
-              setTitle(e.target.value);
-            }}
-            className="w-64 truncate rounded-md border border-transparent bg-transparent px-2 py-1 text-base font-bold text-slate-100 outline-none transition hover:border-edge focus:border-accent focus:bg-ink"
-            aria-label="Titre du projet"
-          />
-          <span
-            className={`text-[11px] ${saveState === "error" ? "text-bad" : "text-slate-500"}`}
-          >
-            {saveLabel}
-          </span>
+          {!demo && (
+            <Link
+              to="/"
+              className="flex h-9 w-9 items-center justify-center rounded-brand bg-muted text-ink/70 transition hover:bg-edge hover:text-brand-blue"
+              aria-label="Retour aux projets"
+            >
+              ←
+            </Link>
+          )}
+          <LogoMark className="h-9 w-9" />
+          {demo ? (
+            <div>
+              <h1 className="text-base font-bold text-ink">{title}</h1>
+              <p className="text-[11px] text-slate-500">Mode démo — sans compte</p>
+            </div>
+          ) : (
+            <>
+              <input
+                value={title}
+                onChange={(e) => {
+                  markDirty();
+                  setTitle(e.target.value);
+                }}
+                className="w-64 truncate rounded-brand border border-transparent bg-transparent px-2 py-1 text-base font-bold text-brand-blue outline-none transition hover:border-edge focus:border-accent focus:bg-muted"
+                aria-label="Titre du projet"
+              />
+              <span
+                className={`text-[11px] ${saveState === "error" ? "text-bad" : "text-slate-500"}`}
+              >
+                {saveLabel}
+              </span>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {runError && (
@@ -357,25 +417,31 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
             className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium ${
               aiKey
                 ? "border-good/30 bg-good/10 text-good"
-                : "border-edge bg-panel2 text-slate-400"
+                : "border-edge bg-muted text-slate-500"
             }`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${aiKey ? "bg-good" : "bg-slate-500"}`} />
             Assistant {aiKey ? "OpenAI" : "local"}
           </span>
           <button
+            type="button"
+            onClick={() => setTab("import")}
+            className="flex items-center gap-2 rounded-brand border border-brand-blue-pale bg-brand-blue-pale/50 px-4 py-2 text-sm font-semibold text-brand-blue transition hover:bg-brand-blue-pale"
+          >
+            <Icon name="import" size={16} />
+            Importer
+          </button>
+          <button
             onClick={run}
             disabled={running}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-accent2 disabled:opacity-40"
+            className="flex items-center gap-2 rounded-brand bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-accent-hover disabled:opacity-40"
           >
             {running ? (
               "Exécution…"
             ) : (
               <>
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-                Exécuter le pipeline
+                <Icon name="play" size={14} className="text-white" />
+                Exécuter
               </>
             )}
           </button>
@@ -384,7 +450,7 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
 
       <div className="flex min-h-0 flex-1">
         {/* Palette */}
-        <aside className="w-60 shrink-0 border-r border-edge bg-panel">
+        <aside className="w-64 shrink-0 border-r border-edge bg-surface">
           <Palette onAdd={(k) => addNodeAt(k as NodeKind)} />
         </aside>
 
@@ -409,7 +475,7 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
             onNodeClick={(_, node) => {
               setSelectedId(node.id);
               setContextMenu(null);
-              if (tab === "ai") return;
+              if (tab === "ai" || tab === "import") return;
               setTab(previews[node.id] ? "preview" : "config");
             }}
             onNodeContextMenu={(e, node) => openContextMenu(e, "node", node.id)}
@@ -424,16 +490,30 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
             defaultEdgeOptions={{ animated: true }}
             proOptions={{ hideAttribution: true }}
           >
-            <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#1f2a44" />
+            <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#cbd5e1" />
             <Controls />
             <MiniMap
               nodeColor={(n) => SPEC_BY_KIND[(n.data as PipeNodeData).kind]?.color ?? "#3b82f6"}
-              maskColor="rgba(10,15,28,0.75)"
-              className="!bg-panel2"
+              maskColor="rgba(248,250,252,0.75)"
+              className="!bg-surface"
             />
           </ReactFlow>
-          <div className="pointer-events-none absolute bottom-3 right-3 rounded-md border border-edge bg-panel/80 px-2.5 py-1 text-[11px] text-slate-400 backdrop-blur">
-            Clic droit ou <kbd className="rounded bg-panel2 px-1 text-slate-200">Suppr</kbd> pour supprimer un lien / nœud
+          {!hasSourceNode && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8">
+              <div className="max-w-md rounded-2xl border border-primary/20 bg-surface/95 px-8 py-10 text-center shadow-card backdrop-blur-sm">
+                <p className="text-3xl">📊</p>
+                <h2 className="mt-3 text-lg font-bold text-ink">Commencez par importer vos données</h2>
+                <p className="mt-2 text-sm text-slate-500">
+                  Étape 1 : <strong className="text-primary">Importer</strong> vos sources · Étape 2 :{" "}
+                  <strong className="text-primary">Qualité</strong> (analyse &amp; normalisation) · Étape 3 : parcours &amp;{" "}
+                  <strong className="text-primary">Exporter</strong>
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="pointer-events-none absolute bottom-3 right-3 rounded-lg border border-edge bg-surface/90 px-2.5 py-1 text-[11px] text-slate-500 shadow-sm backdrop-blur">
+            Clic droit ou <kbd className="rounded bg-muted px-1 text-ink">Suppr</kbd> pour retirer une étape
           </div>
 
           {contextMenu && (
@@ -459,23 +539,42 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
         </main>
 
         {/* Right panel */}
-        <aside className="flex w-[380px] shrink-0 flex-col border-l border-edge bg-panel">
-          <div className="flex border-b border-edge">
-            {(["config", "preview", "ai"] as Tab[]).map((t) => (
+        <aside className="flex w-[420px] shrink-0 flex-col border-l border-edge bg-surface shadow-lg">
+          <WorkflowStepper
+            active={tab === "import" || tab === "quality" || tab === "export" ? tab : null}
+            onStep={(step) => setTab(step)}
+            sourceCount={sourceNodes.length}
+          />
+          <div className="flex border-b border-edge bg-muted/30">
+            {(["config", "preview", "automation", "ai"] as Tab[]).map((t) => (
               <button
                 key={t}
+                type="button"
                 onClick={() => setTab(t)}
-                className={`flex-1 px-3 py-2.5 text-xs font-semibold transition ${
-                  tab === t
-                    ? "border-b-2 border-accent text-accent"
-                    : "text-slate-500 hover:text-slate-300"
+                className={`flex-1 px-2 py-2 text-[10px] font-medium transition ${
+                  tab === t ? "border-b-2 border-slate-400 text-ink" : "text-slate-500 hover:text-ink"
                 }`}
               >
-                {t === "config" ? "Configuration" : t === "preview" ? "Aperçu" : "Assistant"}
+                {t === "config"
+                  ? "Paramètres"
+                  : t === "preview"
+                    ? "Aperçu"
+                    : t === "automation"
+                      ? "Automation"
+                      : "IA"}
               </button>
             ))}
           </div>
           <div className="min-h-0 flex-1">
+            {tab === "import" && (
+              <SourceImportPanel onImported={handleSourceImported} sources={sourceNodes} />
+            )}
+            {tab === "quality" && (
+              <DataQualityPanel sourceNodes={sourceNodes} onApplyNormalize={handleApplyNormalize} />
+            )}
+            {tab === "export" && (
+              <ExportPanel nodes={nodes} edges={edges} hasOutput={hasOutputNode} />
+            )}
             {tab === "config" && (
               <ConfigPanel
                 node={selectedNode}
@@ -483,10 +582,27 @@ function Editor({ projectId, initialTitle, initialNodes, initialEdges }: EditorP
                 onChange={updateConfig}
                 onRename={renameNode}
                 onDelete={deleteNode}
+                onOpenImport={() => setTab("import")}
               />
             )}
             {tab === "preview" && (
-              <PreviewPanel preview={activePreview} title={previewTitle} loading={running} />
+              <>
+                {result?.etl && (
+                  <div className="border-b border-edge bg-muted/40 px-3 py-2 text-[11px] text-slate-600">
+                    Durée {result.etl.durationMs} ms · {result.etl.maxParallel} nœud(s) en parallèle
+                    {result.runId && <span className="ml-2 text-primary">Run {result.runId.slice(0, 8)}…</span>}
+                  </div>
+                )}
+                <PreviewPanel preview={activePreview} title={previewTitle} loading={running} />
+              </>
+            )}
+            {tab === "automation" && !demo && (
+              <div className="overflow-y-auto p-3">
+                <AutomationPanel projectId={projectId} />
+              </div>
+            )}
+            {tab === "automation" && demo && (
+              <p className="p-4 text-sm text-slate-500">Automation disponible dans un projet enregistré.</p>
             )}
             {tab === "ai" && (
               <AIAssistant upstreamColumns={upstreamColumns} aiKey={aiKey} onApply={applyAICode} />
@@ -558,7 +674,7 @@ export default function ProjectEditor() {
 
   return (
     <ReactFlowProvider>
-      <Editor key={data.projectId} {...data} />
+      <PipelineEditor key={data.projectId} {...data} />
     </ReactFlowProvider>
   );
 }
