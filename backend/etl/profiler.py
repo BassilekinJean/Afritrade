@@ -43,8 +43,10 @@ def _column_profile(series: pd.Series, col_name: str) -> Dict[str, Any]:
     name_lower = col_name.lower()
     if any(h in name_lower for h in ("date", "jour", "time", "timestamp")):
         inferred = "date_candidate"
-    elif any(h in name_lower for h in ("montant", "amount", "prix", "qty", "quantite", "nombre", "total")):
+    elif any(h in name_lower for h in ("montant", "amount", "prix", "price", "cotation", "qty", "quantite", "nombre", "total", "rendement", "tonnage", "hectare")):
         inferred = "numeric_candidate"
+    elif any(h in name_lower for h in ("culture", "culture", "espece", "variété", "variete", "recolte", "récolte", "saison", "pluie", "temperature", "irrigation", "cooperative", "coopérative", "producteur")):
+        inferred = "agri_candidate"
     elif any(h in name_lower for h in ("id", "code", "ref")):
         inferred = "identifier"
     elif pd.api.types.is_numeric_dtype(series):

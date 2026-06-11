@@ -1,10 +1,12 @@
 import { PALETTE_SPECS } from "../nodeCatalog";
 import { NodeIcon } from "./icons/Icons";
+import AIButton from "./AIButton";
 
 const PALETTE_ITEMS = PALETTE_SPECS.filter((s) => s.category !== "source");
 const SECTIONS = [
   { key: "trigger", label: "Déclencheurs" },
   { key: "transform", label: "Transformations" },
+  { key: "intelligence", label: "Intelligence agricole" },
   { key: "output", label: "Résultat" },
 ] as const;
 
@@ -13,9 +15,16 @@ export default function Palette({ onAdd }: { onAdd: (kind: string) => void }) {
     <div className="flex h-full flex-col overflow-y-auto p-3">
       <div className="mb-3 rounded-brand border border-brand-blue-pale bg-brand-blue-pale/40 px-3 py-3">
         <p className="text-xs font-bold text-brand-blue">Étapes du pipeline</p>
-        <p className="mt-0.5 text-[10px] leading-relaxed text-ink/60">
-          Glissez une étape sur le canvas après import des sources.
+        <p className="text-xs leading-relaxed text-ink/60">
+          Glissez une étape sur le canvas après import. Sélectionnez un nœud → Paramètres ou Aide.
         </p>
+        <div className="mt-2">
+          <AIButton
+            variant="chip"
+            label="Créer une étape avec l'IA"
+            prompt="Créer une transformation pandas pour données agricoles (prix, culture, région)"
+          />
+        </div>
       </div>
 
       {SECTIONS.map(({ key, label }) => {
@@ -48,7 +57,9 @@ function PaletteButton({
       ? "#0D2C54"
       : spec.category === "output"
         ? "#388E3C"
-        : "#2A9D8F";
+        : spec.category === "intelligence"
+          ? "#388E3C"
+          : "#2A9D8F";
 
   return (
     <button

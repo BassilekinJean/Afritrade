@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { SPEC_BY_KIND, type FieldSpec } from "../nodeCatalog";
 import { NodeIcon } from "./icons/Icons";
+import AIButton from "./AIButton";
 import { fetchUrlSource, previewDatabase, uploadSource } from "../api/pipeline";
 import { listConnections } from "../api/connections";
 import type { Node } from "reactflow";
@@ -35,6 +36,14 @@ export default function ConfigPanel({ node, upstreamColumns, onChange, onRename,
 
   const spec = SPEC_BY_KIND[node.data.kind];
   const config = node.data.config || {};
+  const colsHint = upstreamColumns.length ? upstreamColumns.join(", ") : "colonnes du pipeline";
+  const aiPrompts: Partial<Record<string, { prompt: string; mode: "pandas" | "sql" }>> = {
+    custom: { prompt: `Transformation pandas sur colonnes : ${colsHint}`, mode: "pandas" },
+    sql: { prompt: `Requête SQL sur table input, colonnes : ${colsHint}`, mode: "sql" },
+    filter: { prompt: `Filtrer les lignes agricoles (${colsHint})`, mode: "pandas" },
+    map: { prompt: `Mapper / transformer colonnes (${colsHint})`, mode: "pandas" },
+  };
+  const aiHint = aiPrompts[node.data.kind];
 
   const set = (key: string, value: any) => onChange({ ...config, [key]: value });
   const setMany = (updates: Record<string, any>) => onChange({ ...config, ...updates });
@@ -63,8 +72,24 @@ export default function ConfigPanel({ node, upstreamColumns, onChange, onRename,
           </button>
         </div>
         <div className="mt-1 text-[11px] text-slate-500">{spec?.description}</div>
+        {aiHint && (
+          <div className="mt-2">
+            <AIButton
+              variant="chip"
+              label="Générer avec l'IA"
+              mode={aiHint.mode}
+              prompt={aiHint.prompt}
+            />
+          </div>
+        )}
       </div>
 
+        {(node.data.kind === "causal_analysis" || node.data.kind === "predict") &&
+          !config.targetColumn && (
+          <div className="mx-4 mb-2 rounded-lg border border-warn/30 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Sélectionnez une <strong>colonne cible</strong> ci-dessous, ou ouvrez l&apos;onglet <strong>Aide</strong> pour un guide pas à pas.
+          </div>
+        )}
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
         {spec?.fields.length === 0 && (
           <p className="text-xs text-slate-500">
@@ -169,6 +194,10 @@ function Field({
       return (
         <ColumnsField field={field} value={value} upstreamColumns={upstreamColumns} onChange={onChange} />
       );
+    case "column":
+      return (
+        <ColumnPickField field={field} value={value} upstreamColumns={upstreamColumns} onChange={onChange} help={help} />
+      );
     case "keyvalue":
       return <KeyValueField field={field} value={value} onChange={onChange} />;
     case "file":
@@ -209,6 +238,53 @@ function Field({
     default:
       return null;
   }
+}
+
+function ColumnPickField({
+  field,
+  value,
+  upstreamColumns,
+  onChange,
+  help,
+}: {
+  field: FieldSpec;
+  value: string | undefined;
+  upstreamColumns: string[];
+  onChange: (key: string, value: any) => void;
+  help?: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-slate-600">{field.label}</label>
+      {upstreamColumns.length > 0 ? (
+        <select
+          value={value ?? ""}
+          onChange={(e) => onChange(field.key, e.target.value)}
+          className="w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        >
+          <option value="">— Choisir une colonne —</option>
+          {upstreamColumns.map((col) => (
+            <option key={col} value={col}>
+              {col}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          value={value ?? ""}
+          placeholder={field.placeholder ?? "nom_colonne"}
+          onChange={(e) => onChange(field.key, e.target.value)}
+          className="w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+      )}
+      {upstreamColumns.length === 0 && (
+        <p className="mt-1 text-[11px] text-warn">
+          Connectez une source et importez des données, ou exécutez une fois pour lister les colonnes.
+        </p>
+      )}
+      {help}
+    </div>
+  );
 }
 
 function ColumnsField({

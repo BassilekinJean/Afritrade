@@ -10,6 +10,7 @@ export type FieldType =
   | "keyvalue"
   | "file"
   | "columns"
+  | "column"
   | "url"
   | "database"
   | "connection"
@@ -28,7 +29,7 @@ export interface FieldSpec {
 export interface NodeSpec {
   kind: NodeKind;
   label: string;
-  category: "trigger" | "source" | "transform" | "output";
+  category: "trigger" | "source" | "transform" | "intelligence" | "output";
   icon: string;
   color: string;
   description: string;
@@ -95,7 +96,7 @@ export const NODE_SPECS: NodeSpec[] = [
     icon: "📄",
     color: "#0d9488",
     description: "Tableur, document, base locale… tous formats acceptés",
-    defaultConfig: { delimiter: "," },
+    defaultConfig: { delimiter: "auto" },
     fields: [
       {
         key: "file",
@@ -174,7 +175,7 @@ export const NODE_SPECS: NodeSpec[] = [
     icon: "CSV",
     color: "#0d9488",
     description: "Tableur séparé par virgules ou point-virgules",
-    defaultConfig: { delimiter: "," },
+    defaultConfig: { delimiter: "auto" },
     hidden: true,
     fields: [
       { key: "file", label: "Fichier", type: "file", accept: ".csv,.txt,.tsv" },
@@ -439,9 +440,97 @@ export const NODE_SPECS: NodeSpec[] = [
         key: "code",
         label: "Instructions",
         type: "code",
-        placeholder: "df = df[df['montant'] > 1000]",
+        placeholder: "df = df[df['rendement'] > 1000]",
         help: "Les données arrivent dans la variable `df`.",
       },
+    ],
+  },
+  // --- Intelligence agricole (embeddings, causal, prédiction) ---
+  {
+    kind: "embed_text",
+    label: "Embedding sémantique",
+    category: "intelligence",
+    icon: "🧬",
+    color: "#2A9D8F",
+    description: "Vectorise le sens du texte et étiquette le domaine agricole. À placer juste après la source.",
+    defaultConfig: { textColumn: "", dimensions: 6, label: "source" },
+    fields: [
+      { key: "textColumn", label: "Colonne texte (optionnel)", type: "text", placeholder: "contenu" },
+      { key: "label", label: "Libellé source", type: "text", placeholder: "Prix maïs Abidjan" },
+      { key: "dimensions", label: "Dimensions embedding", type: "number" },
+    ],
+  },
+  {
+    kind: "agri_classify",
+    label: "Classification agricole",
+    category: "intelligence",
+    icon: "🌾",
+    color: "#388E3C",
+    description: "Étiquette le type de données (prix, production…). Mode « annotate » obligatoire avant causal.",
+    defaultConfig: { mode: "annotate", label: "source" },
+    fields: [
+      {
+        key: "mode",
+        label: "Mode",
+        type: "select",
+        options: ["annotate", "summary"],
+        help: "annotate : conserve toutes les lignes (requis avant Analyse causale / Prédiction). summary : une seule ligne récap.",
+      },
+      { key: "label", label: "Libellé source", type: "text" },
+    ],
+  },
+  {
+    kind: "causal_analysis",
+    label: "Analyse causale",
+    category: "intelligence",
+    icon: "🔀",
+    color: "#0D2C54",
+    description: "Quelles colonnes influencent la cible ? Cible ≠ explicatives. Date laissée vide si absent.",
+    defaultConfig: { targetColumn: "", timeColumn: "", maxLag: 3 },
+    fields: [
+      { key: "targetColumn", label: "Variable cible", type: "column", placeholder: "rendement", help: "Ce que vous voulez expliquer (ex. evolution_marche_agricole). Texte accepté — converti automatiquement." },
+      { key: "featureColumns", label: "Variables explicatives", type: "columns", help: "Causes possibles — choisissez 1 à 3 colonnes DIFFÉRENTES de la cible (ex. entites_intervenantes, region)." },
+      { key: "timeColumn", label: "Colonne date (optionnel)", type: "column", placeholder: "date", help: "Laissez vide si vous n'avez pas de dates. Ne mettez pas une colonne texte ici." },
+      { key: "maxLag", label: "Retard max (séries)", type: "number" },
+    ],
+  },
+  {
+    kind: "predict",
+    label: "Prédiction / prévision",
+    category: "intelligence",
+    icon: "📈",
+    color: "#E9C46A",
+    description: "Branchez sur la source CSV (pas après causal). Texte et catégories OK.",
+    defaultConfig: { mode: "regression", targetColumn: "", horizon: 5 },
+    fields: [
+      {
+        key: "mode",
+        label: "Mode",
+        type: "select",
+        options: ["regression", "forecast"],
+        help: "régression : prédire une colonne à partir d'autres · prévision : tendance future (date auto si absente)",
+      },
+      {
+        key: "targetColumn",
+        label: "Colonne cible",
+        type: "column",
+        placeholder: "message",
+        help: "Texte, catégories ou nombres acceptés (encodage automatique).",
+      },
+      {
+        key: "featureColumns",
+        label: "Variables explicatives",
+        type: "columns",
+        help: "Régression uniquement — colonnes différentes de la cible (texte OK).",
+      },
+      {
+        key: "timeColumn",
+        label: "Colonne date (prévision)",
+        type: "column",
+        placeholder: "date",
+        help: "Optionnel : détectée auto, sinon prévision par numéro de ligne.",
+      },
+      { key: "horizon", label: "Horizon prévision", type: "number" },
     ],
   },
   {

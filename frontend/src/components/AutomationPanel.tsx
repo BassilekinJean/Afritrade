@@ -10,6 +10,7 @@ import {
 } from "../api/automation";
 import { listProjects } from "../api/projects";
 import type { ProjectSummary, Schedule, Webhook } from "../types";
+import AIButton from "./AIButton";
 import Button from "./ui/Button";
 import Input from "./ui/Input";
 import Spinner from "./ui/Spinner";
@@ -73,9 +74,12 @@ export default function AutomationPanel({ projectId }: { projectId?: string }) {
 
   return (
     <div className="space-y-6 text-sm">
-      <div>
-        <h3 className="font-bold text-ink">Automation (n8n)</h3>
-        <p className="text-xs text-slate-500">Planification cron et webhooks entrants</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="font-bold text-ink">Automation (n8n)</h3>
+          <p className="text-xs text-slate-500">Planification cron et webhooks entrants</p>
+        </div>
+        <AIButton variant="chip" label="Automatiser avec l'IA" prompt="Préparer une transformation pandas à exécuter automatiquement chaque matin" />
       </div>
 
       {!projectId && (

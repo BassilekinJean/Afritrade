@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Edge, Node } from "reactflow";
+import AIButton from "./AIButton";
 import { exportPipeline } from "../api/pipeline";
 import type { PipeNodeData } from "../types";
 
@@ -43,10 +44,19 @@ export default function ExportPanel({ nodes, edges, hasOutput }: Props) {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-edge bg-muted/30 px-4 py-4">
-        <h2 className="text-base font-bold text-ink">Stockage final</h2>
-        <p className="mt-0.5 text-xs text-slate-600">
-          Choisissez le format dans lequel vos données normalisées et transformées seront exportées.
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 className="text-base font-bold text-ink">Stockage final</h2>
+            <p className="mt-0.5 text-xs text-slate-600">
+              Choisissez le format dans lequel vos données normalisées et transformées seront exportées.
+            </p>
+          </div>
+          <AIButton
+            variant="chip"
+            label="Préparer export"
+            prompt="Préparer les données agricoles avant export CSV avec séparateur point-virgule"
+          />
+        </div>
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">

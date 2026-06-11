@@ -244,6 +244,91 @@ def t_branch(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
         raise PipelineError(f"Condition de branche invalide « {expr} » : {exc}") from exc
 
 
+def t_embed_text(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Vectorise le contenu sémantique et enrichit avec la classification agricole."""
+    from .agri_classify import classify_dataframe
+    from .embeddings import top_dimensions
+
+    label = str(config.get("label") or "source")
+    source_kind = str(config.get("sourceKind") or "tabular")
+    text_col = (config.get("textColumn") or "").strip()
+    n_dims = int(config.get("dimensions") or 6)
+
+    if text_col and text_col in df.columns:
+        texts = df[text_col].fillna("").astype(str).tolist()
+        rows = []
+        for i, txt in enumerate(texts):
+            row = {"_row": i}
+            dims = top_dimensions(txt or label, n=n_dims)
+            for j, (name, val) in enumerate(dims):
+                row[f"embed_{j + 1}"] = val
+                row[f"embed_term_{j + 1}"] = name
+            rows.append(row)
+        embed_df = pd.DataFrame(rows).set_index("_row")
+        out = df.copy()
+        for c in embed_df.columns:
+            out[c] = embed_df[c].values
+    else:
+        out = df.copy()
+
+    clf = classify_dataframe(out, label=label, source_kind=source_kind)
+    out["_agri_domain"] = clf.get("domain")
+    out["_agri_domain_label"] = clf.get("domainLabel")
+    out["_agri_confidence"] = clf.get("confidence")
+    return out
+
+
+def t_agri_classify(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Classification du domaine agricole (embedding TF-IDF)."""
+    from .agri_classify import classify_dataframe
+
+    mode = (config.get("mode") or "annotate").lower()
+    label = str(config.get("label") or "source")
+    source_kind = str(config.get("sourceKind") or "tabular")
+
+    clf = classify_dataframe(df, label=label, source_kind=source_kind)
+    if mode == "summary":
+        return pd.DataFrame([{
+            "domain": clf.get("domain"),
+            "domainLabel": clf.get("domainLabel"),
+            "confidence": clf.get("confidence"),
+            "keywords": ", ".join(clf.get("agriKeywords") or []),
+            "method": clf.get("embeddingMethod"),
+        }])
+
+    out = df.copy()
+    out["_agri_domain"] = clf.get("domain")
+    out["_agri_domain_label"] = clf.get("domainLabel")
+    out["_agri_confidence"] = clf.get("confidence")
+    return out
+
+
+def t_causal_analysis(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Analyse causale : corrélations et liens temporels."""
+    from .causal import analyze_causal, causal_analysis_to_dataframe
+
+    target = (config.get("targetColumn") or "").strip() or None
+    features = config.get("featureColumns") or config.get("features")
+    time_col = (config.get("timeColumn") or "").strip() or None
+    max_lag = int(config.get("maxLag") or 3)
+
+    report = analyze_causal(
+        df,
+        target_column=target or "",
+        feature_columns=features,
+        time_column=time_col,
+        max_lag=max_lag,
+    )
+    return causal_analysis_to_dataframe(report)
+
+
+def t_predict(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Prédiction / prévision (régression ou série temporelle)."""
+    from .predict import run_prediction
+
+    return run_prediction(df, config)
+
+
 # --------------------------------------------------------------------------- #
 #  Sandbox pandas pour le code personnalisé / généré par l'IA
 # --------------------------------------------------------------------------- #
@@ -291,6 +376,10 @@ SINGLE_INPUT_TRANSFORMS = {
     "validate": t_validate,
     "http_request": t_http_request,
     "branch": t_branch,
+    "embed_text": t_embed_text,
+    "agri_classify": t_agri_classify,
+    "causal_analysis": t_causal_analysis,
+    "predict": t_predict,
     "output": lambda df, _config: df,
 }
 

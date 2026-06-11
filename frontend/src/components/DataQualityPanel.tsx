@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Node } from "reactflow";
+import AIButton from "./AIButton";
 import { analyzeSources } from "../api/pipeline";
 import type { AnalyzeResponse, NormalizeOptions, PipeNodeData } from "../types";
 
@@ -60,10 +61,19 @@ export default function DataQualityPanel({ sourceNodes, onApplyNormalize }: Prop
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-edge bg-muted/30 px-4 py-4">
-        <h2 className="text-base font-bold text-ink">Qualité &amp; normalisation</h2>
-        <p className="mt-0.5 text-xs text-slate-600">
-          Analyse intelligente de chaque jeu : colonnes, types, valeurs manquantes, titres (articles), structure (PDF).
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 className="text-base font-bold text-ink">Qualité &amp; normalisation</h2>
+            <p className="mt-0.5 text-xs text-slate-600">
+              Analyse + domaine agricole automatique. Puis configurez causal/prédiction (voir onglet Aide).
+            </p>
+          </div>
+          <AIButton
+            variant="chip"
+            label="Nettoyer avec l'IA"
+            prompt="Supprimer doublons et lignes vides, normaliser les colonnes prix et culture agricoles"
+          />
+        </div>
       </div>
 
       <div className="space-y-3 border-b border-edge p-4">
@@ -176,6 +186,11 @@ function SourceProfileCard({ entry }: { entry: AnalyzeResponse["sources"][number
     );
   }
   const p = entry.profile!;
+  const agri = entry.agriClassification || (p.agriDomain ? {
+    domainLabel: p.agriDomainLabel,
+    confidence: p.agriConfidence,
+    domain: p.agriDomain,
+  } : null);
   const kindLabel = DATASET_LABELS[p.datasetKind] || p.datasetKind;
   return (
     <div className="rounded-xl border border-edge bg-surface p-3 shadow-sm">
@@ -192,6 +207,12 @@ function SourceProfileCard({ entry }: { entry: AnalyzeResponse["sources"][number
         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-slate-600">
           Complétude {p.completenessPercent}%
         </span>
+        {agri?.domainLabel && (
+          <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-800">
+            {agri.domainLabel}
+            {agri.confidence != null && ` (${Math.round(agri.confidence * 100)}%)`}
+          </span>
+        )}
         {typeof p.documentMeta?.title === "string" && p.documentMeta.title && (
           <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700">
             Titre : {p.documentMeta.title.slice(0, 40)}…

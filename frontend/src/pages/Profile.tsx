@@ -4,6 +4,7 @@ import { useAuth } from "../auth";
 import { changePassword } from "../api/auth";
 import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
+import AIButton from "../components/AIButton";
 import { BrandHeader } from "../components/brand/Logo";
 
 function formatDate(iso?: string | null): string {
@@ -49,12 +50,15 @@ export default function Profile() {
     <div className="min-h-screen bg-canvas text-ink">
       <header className="flex items-center justify-between border-b border-edge bg-surface px-6 py-3 shadow-sm">
         <BrandHeader />
-        <Link
-          to="/"
-          className="rounded-brand border border-edge px-3 py-2 text-sm text-ink/70 transition hover:bg-muted"
-        >
-          ← Retour
-        </Link>
+        <div className="flex items-center gap-2">
+          <AIButton variant="ghost" label="Assistant IA" prompt="Comment utiliser Aaprovidir DataPipe pour mes données agricoles ?" />
+          <Link
+            to="/"
+            className="rounded-brand border border-edge px-3 py-2 text-sm text-ink/70 transition hover:bg-muted"
+          >
+            ← Retour
+          </Link>
+        </div>
       </header>
 
       <div className="mx-auto max-w-2xl px-6 py-8">

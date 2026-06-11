@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Node } from "reactflow";
+import AIButton from "./AIButton";
 import { fetchUrlSource, getDbHint, previewDatabase, uploadSource } from "../api/pipeline";
 import type { NodeKind, PipeNodeData, TablePreview } from "../types";
 
@@ -38,7 +39,7 @@ export default function SourceImportPanel({ onImported, sources = [] }: Props) {
   const [preview, setPreview] = useState<TablePreview | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const [delimiter, setDelimiter] = useState(",");
+  const [delimiter, setDelimiter] = useState("auto");
   const [table, setTable] = useState("");
   const [sheet, setSheet] = useState("");
   const [lastFilename, setLastFilename] = useState<string | null>(null);
@@ -104,7 +105,7 @@ export default function SourceImportPanel({ onImported, sources = [] }: Props) {
           __filename: res.filename,
           __columns: res.columns ?? [],
           __rowCount: res.rowCount ?? 0,
-          delimiter,
+          delimiter: delimiter === "auto" ? undefined : delimiter,
           table: table || undefined,
           sheet: sheet || undefined,
         },
@@ -192,11 +193,19 @@ export default function SourceImportPanel({ onImported, sources = [] }: Props) {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-edge bg-primary-light/40 px-4 py-4">
-        <h2 className="text-base font-bold text-ink">Étape 1 — Importer vos données</h2>
-        <p className="mt-0.5 text-xs text-slate-600">
-          Chaque source ajoutée apparaît comme un bloc sur le canvas central. Puis passez à{" "}
-          <strong>2. Qualité</strong>.
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 className="text-base font-bold text-ink">Étape 1 — Importer vos données</h2>
+            <p className="mt-0.5 text-xs text-slate-600">
+              CSV : séparateur <strong>Auto</strong>. Chaque source apparaît sur le canvas → puis <strong>2. Qualité</strong>.
+            </p>
+          </div>
+          <AIButton
+            variant="chip"
+            label="Transformer après import"
+            prompt="Après import CSV agricole (prix, culture, région), filtrer le maïs et sommer les prix par région"
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-2 border-b border-edge p-3">
@@ -264,12 +273,16 @@ export default function SourceImportPanel({ onImported, sources = [] }: Props) {
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="mb-1 block text-[11px] font-medium text-slate-600">Séparateur CSV</label>
-                <input
+                <select
                   value={delimiter}
                   onChange={(e) => setDelimiter(e.target.value)}
-                  placeholder=","
                   className="w-full rounded-lg border border-edge px-2 py-1.5 text-sm"
-                />
+                >
+                  <option value="auto">Auto (recommandé)</option>
+                  <option value=";">Point-virgule ;</option>
+                  <option value=",">Virgule ,</option>
+                  <option value="\t">Tabulation</option>
+                </select>
               </div>
               <div>
                 <label className="mb-1 block text-[11px] font-medium text-slate-600">Table SQL</label>

@@ -33,21 +33,152 @@ def _resolve_content(config: Dict[str, Any], datasets: Dict[str, str]) -> Option
     return None
 
 
-def _sniff_delimiter(sample: str, fallback: str) -> str:
-    """Devine le séparateur d'un CSV francophone (`;`, `,`, tab, `|`)."""
-    first_line = sample.splitlines()[0] if sample.splitlines() else ""
-    candidates = {sep: first_line.count(sep) for sep in (";", ",", "\t", "|")}
-    best = max(candidates, key=candidates.get)
-    return best if candidates[best] > 0 else fallback
+def _normalize_raw_text(raw: str) -> str:
+    if raw.startswith("\ufeff"):
+        raw = raw.lstrip("\ufeff")
+    return raw.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _detect_delimiter(sample: str, fallback: str = ";") -> str:
+    """Devine le séparateur en analysant plusieurs lignes (pas seulement l'en-tête)."""
+    lines = [ln for ln in sample.splitlines()[:30] if ln.strip()]
+    if not lines:
+        return fallback
+    best_sep, best_score = fallback, -1.0
+    for sep in (";", ",", "\t", "|"):
+        counts = [ln.count(sep) for ln in lines]
+        positive = [c for c in counts if c > 0]
+        if not positive:
+            continue
+        mode_count = max(set(positive), key=positive.count)
+        freq = positive.count(mode_count) / len(lines)
+        score = freq * (mode_count + 1)
+        if score > best_score:
+            best_score = score
+            best_sep = sep
+    return best_sep if best_score > 0 else fallback
+
+
+def _score_csv_parse(raw: str, sep: str) -> tuple[int, int]:
+    """Retourne (nb_colonnes, nb_lignes) si le parsing réussit, sinon (0, 0)."""
+    try:
+        df = pd.read_csv(
+            io.StringIO(raw),
+            sep=sep,
+            dtype=str,
+            keep_default_na=True,
+            engine="python",
+            on_bad_lines="skip",
+        )
+        if df.empty or len(df.columns) <= 1:
+            return 0, 0
+        return len(df.columns), len(df)
+    except Exception:  # noqa: BLE001
+        return 0, 0
+
+
+def _resolve_delimiter(config: Dict[str, Any], raw: str) -> str:
+    """Résout le séparateur : auto-détection robuste, override si « , » par défaut incorrect."""
+    user = (config.get("delimiter") or "").strip()
+    detected = _detect_delimiter(raw, ";")
+
+    if user in ("", "auto", "detect"):
+        return detected
+
+    user_cols, user_rows = _score_csv_parse(raw, user)
+    det_cols, det_rows = _score_csv_parse(raw, detected)
+
+    # Le défaut frontend « , » ne doit pas bloquer un CSV « ; » francophone.
+    if user == "," and det_cols > user_cols and det_rows >= user_rows:
+        return detected
+    if user_cols >= 2 and user_rows > 0:
+        return user
+    if det_cols >= 2:
+        return detected
+    return user or detected
+
+
+def _strip_csv_preamble(raw: str, sep: str) -> str:
+    """Ignore les lignes de titre/metadata avant l'en-tête tabulaire."""
+    lines = raw.splitlines()
+    if len(lines) <= 1:
+        return raw
+    start = 0
+    for i, line in enumerate(lines):
+        if line.count(sep) >= 1:
+            start = i
+            break
+    if start == 0:
+        return raw
+    return "\n".join(lines[start:])
+
+
+def _read_csv_robust(raw: str, delimiter: Optional[str] = None) -> pd.DataFrame:
+    raw = _normalize_raw_text(raw)
+    sep = delimiter or _detect_delimiter(raw, ";")
+    raw_body = _strip_csv_preamble(raw, sep)
+
+    candidates: List[str] = []
+    for s in (sep, ";", ",", "\t", "|"):
+        if s not in candidates:
+            candidates.append(s)
+
+    last_exc: Optional[Exception] = None
+    best_df: Optional[pd.DataFrame] = None
+    best_score = (0, 0)
+
+    for candidate in candidates:
+        body = _strip_csv_preamble(raw, candidate)
+        for body_try in (body, raw):
+            try:
+                df = pd.read_csv(
+                    io.StringIO(body_try),
+                    sep=candidate,
+                    dtype=str,
+                    keep_default_na=True,
+                    engine="python",
+                    on_bad_lines="skip",
+                    quoting=3,  # csv.QUOTE_NONE — tolère guillemets mal fermés
+                )
+                score = (len(df.columns), len(df))
+                if score[0] >= 2 and score > best_score:
+                    best_df = df
+                    best_score = score
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                try:
+                    df = pd.read_csv(
+                        io.StringIO(body_try),
+                        sep=candidate,
+                        dtype=str,
+                        keep_default_na=True,
+                        engine="python",
+                        on_bad_lines="skip",
+                    )
+                    score = (len(df.columns), len(df))
+                    if score[0] >= 2 and score > best_score:
+                        best_df = df
+                        best_score = score
+                except Exception as exc2:  # noqa: BLE001
+                    last_exc = exc2
+
+    if best_df is not None and not best_df.empty:
+        return best_df
+
+    if last_exc:
+        raise PipelineError(f"Lecture CSV impossible : {last_exc}") from last_exc
+    raise PipelineError("Lecture CSV impossible : fichier vide ou format non reconnu.")
 
 
 def extract_csv(config: Dict[str, Any], datasets: Dict[str, str]) -> pd.DataFrame:
     raw = _resolve_content(config, datasets)
     if raw is None:
         raise PipelineError("Source CSV vide : importez un fichier ou collez du contenu.")
-    delimiter = config.get("delimiter") or _sniff_delimiter(raw, ",")
+    delimiter = _resolve_delimiter(config, raw)
     try:
-        return pd.read_csv(io.StringIO(raw), sep=delimiter, dtype=str, keep_default_na=True)
+        return _read_csv_robust(raw, delimiter)
+    except PipelineError:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise PipelineError(f"Lecture CSV impossible : {exc}") from exc
 

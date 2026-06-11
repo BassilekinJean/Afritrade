@@ -562,6 +562,28 @@ def list_activity(limit: int = 100) -> List[Dict[str, Any]]:
     ]
 
 
+def list_user_activity(user_id: str, limit: int = 30) -> List[Dict[str, Any]]:
+    with _lock, _connect() as conn:
+        rows = conn.execute(
+            """SELECT * FROM activity_log
+               WHERE user_id = ?
+               ORDER BY created_at DESC LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "userId": r["user_id"],
+            "email": r["email"],
+            "action": r["action"],
+            "detail": r["detail"],
+            "ip": r["ip"],
+            "createdAt": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
 # --------------------------------------------------------------------------- #
 #  Connexions réutilisables (Talend)
 # --------------------------------------------------------------------------- #

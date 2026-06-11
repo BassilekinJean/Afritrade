@@ -201,3 +201,30 @@ class WebhookOut(BaseModel):
     enabled: bool
     created_at: str
     webhook_url: Optional[str] = None
+
+
+# --------------------------------------------------------------------------- #
+#  Conducteur IA (pipeline guidé)
+# --------------------------------------------------------------------------- #
+class ConductorStartRequest(BaseModel):
+    columns: List[str] = Field(default_factory=list)
+    sourceLabel: str = "Source importée"
+    projectId: Optional[str] = None
+    sourceNodeId: Optional[str] = None
+
+
+class ConductorIntentRequest(BaseModel):
+    sessionId: str
+    intent: str = Field(min_length=3)
+
+
+class ConductorPlanRequest(BaseModel):
+    sessionId: str
+    action: str = Field(pattern="^(accept|revise)$")
+    feedback: Optional[str] = None
+
+
+class ConductorStepRequest(BaseModel):
+    sessionId: str
+    action: str = Field(pattern="^(accept|reject|revise)$")
+    feedback: Optional[str] = None

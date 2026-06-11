@@ -6,6 +6,7 @@ import type { ActivityEntry, OnlineUser, ProjectSummary, Role, User } from "../t
 import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
 import Modal from "../components/ui/Modal";
+import AIButton from "../components/AIButton";
 import { BrandHeader } from "../components/brand/Logo";
 
 const PRESENCE_POLL_MS = 4000;
@@ -96,6 +97,7 @@ export default function AdminDashboard() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <AIButton variant="ghost" label="Assistant IA" prompt="Aide admin : résumer l'activité des pipelines agricoles" />
           <Link
             to="/"
             className="rounded-brand border border-edge px-3 py-2 text-sm text-ink/70 transition hover:bg-muted"

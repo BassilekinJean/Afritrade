@@ -2,7 +2,7 @@
 
 > Document de suivi des évolutions du backend : **ce qui a été retiré**, **ce qui a été ajouté**, et **comment l'ensemble s'articule** aujourd'hui.
 >
-> Dernière mise à jour : **11 juin 2026**
+> Dernière mise à jour : **11 juin 2026** (IA, conducteur pipeline, intelligence agricole, export)
 >
 > **Voir aussi :** [RAPPORT_PROJET.md](./RAPPORT_PROJET.md) — rapport complet équipe (Talend/n8n, design Aaprovidir, installation).
 
@@ -54,7 +54,7 @@ Le front continue d'appeler les mêmes routes ETL principales ; les routes auth/
 | Exécution pipeline sans authentification | Supprimé — `POST /api/pipeline/run` exige un JWT |
 | `POST /api/upload` (ancien nom) | Remplacé par `POST /api/sources/upload` |
 | `POST /api/run` (ancien nom) | Remplacé par `POST /api/pipeline/run` |
-| `POST /api/export` | **Pas encore réimplémenté** (prévu côté MVP) |
+| `POST /api/export` | **Implémenté** — CSV, JSON, JSONL, SQLite, Parquet |
 
 ---
 
@@ -65,24 +65,18 @@ Le front continue d'appeler les mêmes routes ETL principales ; les routes auth/
 ```
 backend/
 ├── main.py                 # Point d'entrée FastAPI v2.0 (auth + ETL + IA)
+├── ai.py                   # Génération code IA (pandas/SQL)
+├── ai/conductor.py         # Conducteur pipeline guidé + accueil
 ├── database.py             # Couche SQLite : users, projects, activity_log
 ├── security.py             # bcrypt + JWT (HS256)
 ├── auth.py                 # Dépendances FastAPI get_current_user / get_current_admin
-├── schemas.py              # Modèles Pydantic (auth, admin, projets, journal)
+├── schemas.py              # Modèles Pydantic (auth, admin, projets, conducteur…)
 ├── storage.py              # DatasetStore : cache mémoire + disque local
 ├── pipeline.py             # Shim de compatibilité → package etl/
-├── routers/
-│   ├── auth.py             # login, logout, me, change-password
-│   ├── admin.py            # CRUD comptes, projets org., présence, journal
-│   └── projects.py         # CRUD projets utilisateur (+ accès admin étendu)
-└── etl/                    # Moteur ETL refactorisé
-    ├── config.py           # Constantes (aperçu, limites…)
-    ├── errors.py           # PipelineError
-    ├── extract.py          # Sources CSV, JSON, SQL, SQLite
-    ├── standardize.py      # Harmonisation formats (dates, montants…)
-    ├── transform.py        # filter, select, rename, sort, aggregate, dedupe, sql, custom, join
-    ├── staging.py          # Bases tampon RAW / CLEAN / WAREHOUSE (SQLite)
-    └── engine.py           # Orchestration topologique + exécution parallèle
+├── pipeline_service.py     # Exécution tracée (runs, logs)
+├── scheduler.py            # Planification cron
+├── routers/                # auth, admin, projects, connections, executions, automation
+└── etl/                    # extract, transform, analyze, agri_*, causal, predict…
 ```
 
 ### 3.2 Authentification locale (SQLite + JWT)
@@ -109,7 +103,9 @@ backend/
 | CRUD comptes | `GET/POST/PATCH/DELETE /api/admin/users` |
 | Vue projets organisation | `GET/DELETE /api/admin/projects` (+ lecture par id) |
 | Journal temps réel | Table `activity_log` + `GET /api/admin/activity` |
-| Actions journalisées | `login`, `logout`, `login_failed`, `login_blocked`, `login_denied`, `password_changed`, `user_created`, `user_updated`, `user_deleted`, `project_created`, `project_deleted`, `pipeline_run` |
+| Actions journalisées | `login`, `logout`, `login_failed`, `login_blocked`, `login_denied`, `password_changed`, `user_created`, `user_updated`, `user_deleted`, `project_created`, `project_deleted`, `pipeline_run`, `export`, **`conductor_plan`**, **`conductor_step`** |
+
+Fonction **`list_user_activity(user_id, limit)`** : activité filtrée par utilisateur (accueil IA).
 
 Chaque entrée du journal enregistre : auteur (`user_id`, `email` = username), action, détail, IP client, horodatage UTC.
 
@@ -183,9 +179,22 @@ Architecture **Medallion** avec trois bases tampon SQLite gérées par `staging.
 | `POST /api/pipeline/run` | Exécution du graphe nodal |
 | `GET /api/etl/staging` | Résumé des bases tampon |
 | `POST /api/etl/reset` | Réinitialisation des tampons |
-| `POST /api/ai/generate` | Assistant IA (code pandas/SQL) |
+| `POST /api/etl/analyze` | Profilage multi-sources |
+| `POST /api/etl/classify` | Classification agricole |
+| `POST /api/etl/intelligence` | Causal / prédiction |
+| `POST /api/export` | Export pipeline |
+| `POST /api/ai/generate` | Code pandas/SQL |
+| `GET /api/ai/welcome` | Accueil utilisateur |
+| `POST /api/ai/conductor/*` | Pipeline guidé |
 
-### 3.7 Stockage local des fichiers sources
+### 3.7 Assistant IA & conducteur
+
+- **`ai.py`** : heuristiques agricoles + OpenAI/Groq/OpenRouter, validation code
+- **`ai/conductor.py`** : sessions, plans, validation plan/étapes, `build_welcome()`
+- **`list_user_activity()`** dans `database.py` pour l'accueil
+- Sessions conducteur en **mémoire** (MVP, non persistées)
+
+### 3.8 Stockage local des fichiers sources
 
 `storage.py` — classe `DatasetStore` :
 
@@ -193,7 +202,7 @@ Architecture **Medallion** avec trois bases tampon SQLite gérées par `staging.
 - Persistance **disque** dans `backend/.data/uploads/` (survit au reload Uvicorn).
 - Identifiant logique : `sources/{uuid}.{ext}`.
 
-### 3.8 Variables d'environnement (`.env.example`)
+### 3.9 Variables d'environnement (`.env.example`)
 
 Nouvelles variables par rapport à l'ère Supabase :
 
@@ -204,12 +213,15 @@ ADMIN_USERNAME=aaprovidir
 ADMIN_PASSWORD=aaprovidir
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 DATAPIPE_DATA_DIR=...          # optionnel
-OPENAI_API_KEY=...             # optionnel (IA)
+OPENAI_API_KEY=...             # optionnel — assistant cloud
+OPENAI_MODEL=gpt-4o-mini
+# OPENAI_BASE_URL=...         # Groq, OpenRouter…
+PUBLIC_API_URL=...           # URL base webhooks
 ```
 
 Variables Supabase retirées : `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, etc.
 
-### 3.9 Dépendances Python ajoutées
+### 3.10 Dépendances Python ajoutées
 
 ```
 bcrypt==4.2.1      # hachage mots de passe
@@ -264,7 +276,18 @@ Dépendances conservées : `fastapi`, `uvicorn`, `pandas`, `sqlalchemy`, `pydant
 | `POST` | `/api/pipeline/run` | Oui | Exécuter le pipeline |
 | `GET` | `/api/etl/staging` | Oui | État des tampons ETL |
 | `POST` | `/api/etl/reset` | Oui | Reset tampons |
+| `POST` | `/api/export` | Oui | Export pipeline (CSV, JSON, Parquet…) |
+| `POST` | `/api/etl/analyze` | Oui | Profilage / normalisation |
+| `POST` | `/api/etl/classify` | Oui | Classification agricole |
+| `POST` | `/api/etl/intelligence` | Oui | Causal / prédiction |
+| `GET` | `/api/ai/status` | Oui | État IA |
+| `GET` | `/api/ai/welcome` | Oui | Accueil + résumé activité |
 | `POST` | `/api/ai/generate` | Oui | Génération code IA |
+| `POST` | `/api/ai/conductor/start` | Oui | Session conducteur |
+| `POST` | `/api/ai/conductor/intent` | Oui | Intention → plan |
+| `POST` | `/api/ai/conductor/plan` | Oui | Validation plan |
+| `POST` | `/api/ai/conductor/step` | Oui | Validation étape |
+| `GET` | `/api/ai/conductor/{id}` | Oui | État session |
 
 ---
 
@@ -340,13 +363,29 @@ Ajouts majeurs documentés en détail dans **[RAPPORT_PROJET.md](./RAPPORT_PROJE
 
 **Nouvelles tables SQLite :** `connections`, `pipeline_runs`, `node_run_logs`, `schedules`, `webhooks`
 
-**Nouveaux nœuds ETL :** triggers, `http_request`, `lookup`, `union`, `cast`, `split`, `pivot`, `validate`, `branch`
+**Nouveaux nœuds ETL :** triggers, `http_request`, `lookup`, `union`, `cast`, `split`, `pivot`, `validate`, `branch`, **`agri_classify`**, **`causal_analysis`**, **`predict`**, **`embed_text`**
 
 ---
 
-## 9. Reste à faire
+## 9. Extension IA & frontend (juin 2026)
 
-- [ ] Tests automatisés `pytest` sur le moteur ETL
+| Composant frontend | Rôle |
+|--------------------|------|
+| `WelcomeModal.tsx` | Accueil automatique à la connexion |
+| `AIGlobalShell.tsx` | Panneau flottant + `Ctrl+Shift+I` |
+| `AIConductor.tsx` | Wizard pipeline guidé post-import |
+| `AIAssistant.tsx` | Génération code pandas/SQL |
+| `AIButton.tsx` | Déclencheurs IA contextuels |
+| `HelpPanel.tsx` | Centre d'aide (8 sections) |
+| `AnalyticsPanel.tsx` | Analytiques multi-projets |
+| `ai/AIContext.tsx` | Provider global IA |
+
+---
+
+## 10. Reste à faire
+
+- [ ] Persistance sessions conducteur en SQLite
+- [ ] Tests automatisés `pytest` sur le moteur ETL et le conducteur IA
 - [ ] Durcissement sandbox `custom` (RestrictedPython / conteneur)
 - [ ] Chiffrement des credentials connexions en base
 - [ ] Exécution pipeline asynchrone (file de jobs)
@@ -354,7 +393,7 @@ Ajouts majeurs documentés en détail dans **[RAPPORT_PROJET.md](./RAPPORT_PROJE
 
 ---
 
-## 10. Fichiers de référence
+## 12. Fichiers de référence
 
 | Document | Contenu |
 |---|---|

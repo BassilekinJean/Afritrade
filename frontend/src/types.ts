@@ -27,6 +27,10 @@ export type NodeKind =
   | "pivot"
   | "validate"
   | "branch"
+  | "embed_text"
+  | "agri_classify"
+  | "causal_analysis"
+  | "predict"
   | "sql"
   | "custom"
   | "output";
@@ -88,6 +92,83 @@ export interface DataProfile {
   issues: string[];
   recommendations: string[];
   documentMeta: Record<string, unknown>;
+  agriDomain?: string;
+  agriDomainLabel?: string;
+  agriConfidence?: number;
+  agriScores?: Record<string, number>;
+  agriKeywords?: string[];
+}
+
+export interface AgriClassification {
+  domain: string;
+  domainLabel: string;
+  confidence: number;
+  scores: Record<string, number>;
+  topMatches?: Array<{ domain: string; score: number }>;
+  embeddingMethod?: string;
+  dimensions?: number;
+  agriKeywords?: string[];
+}
+
+export interface CrossSourceLink {
+  sourceA: string;
+  sourceB: string;
+  domainA: string;
+  domainB: string;
+  commonColumns: string[];
+  semanticSimilarity: number;
+  causalHypothesis?: string | null;
+  joinSuggestion?: string | null;
+}
+
+export interface ClassifyResponse {
+  sources: Array<{
+    id: string;
+    label: string;
+    type: string;
+    classification?: AgriClassification;
+    columns?: string[];
+    rowCount?: number;
+    error?: string;
+  }>;
+  summary: {
+    total: number;
+    classified: number;
+    domains: Record<string, number>;
+  };
+  crossSourceLinks: CrossSourceLink[];
+  fusionSuggestions: Array<{
+    goal: string;
+    sources: string[];
+    method: string;
+    targetDomain: string;
+  }>;
+  errors: string[];
+  theme: string;
+}
+
+export interface CausalLink {
+  feature: string;
+  target: string;
+  correlation: number;
+  absCorrelation: number;
+  direction: string;
+  causalScore: number;
+  lagHint?: string | null;
+  grangerNote?: string | null;
+  interpretation: string;
+}
+
+export interface IntelligenceResponse {
+  targetColumn?: string;
+  causalLinks?: CausalLink[];
+  topDrivers?: CausalLink[];
+  mode?: string;
+  metrics?: Record<string, number>;
+  trend?: string;
+  preview?: TablePreview;
+  mergedSources?: string[];
+  theme?: string;
 }
 
 export interface NormalizeOptions {
@@ -97,20 +178,27 @@ export interface NormalizeOptions {
   dropDuplicates: boolean;
 }
 
+export interface AnalyzeResponse {
+  sources: SourceAnalyzeResult[];
+  summary: {
+    total: number;
+    success: number;
+    failed: number;
+    avgQuality: number;
+    agriDomains?: Record<string, number>;
+  };
+  errors: string[];
+  normalized: boolean;
+}
+
 export interface SourceAnalyzeResult {
   id: string;
   type: string;
   label: string;
   profile?: DataProfile;
+  agriClassification?: AgriClassification;
   normalized?: { rowCount: number; columns: string[]; standardization: Record<string, unknown> };
   error?: string;
-}
-
-export interface AnalyzeResponse {
-  sources: SourceAnalyzeResult[];
-  summary: { total: number; success: number; failed: number; avgQuality: number };
-  errors: string[];
-  normalized: boolean;
 }
 
 export interface AIResponse {
@@ -118,6 +206,71 @@ export interface AIResponse {
   explanation: string;
   mode: string;
   source?: string;
+}
+
+export interface AIStatus {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  hasKey: boolean;
+  mode: "cloud" | "local";
+  hint: string;
+}
+
+export interface ConductorMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ConductorStep {
+  id: string;
+  order: number;
+  title: string;
+  description: string;
+  action: "quality_check" | "add_node";
+  nodeKind?: NodeKind | null;
+  config?: Record<string, unknown>;
+  connectTo?: "chain" | "source";
+  codePrompt?: string;
+  tab?: string;
+  generatedExplanation?: string;
+  generationError?: string;
+}
+
+export interface ConductorPlan {
+  summary: string;
+  steps: ConductorStep[];
+}
+
+export interface ConductorState {
+  sessionId: string;
+  phase: "awaiting_intent" | "plan_proposed" | "step_pending" | "completed";
+  messages: ConductorMessage[];
+  intent: string;
+  plan: ConductorPlan | null;
+  currentStep: ConductorStep | null;
+  currentStepIndex: number;
+  totalSteps: number;
+  acceptedSteps: ConductorStep[];
+  columns: string[];
+  sourceLabel: string;
+  projectId?: string | null;
+  sourceNodeId?: string | null;
+}
+
+export interface WelcomePayload {
+  greeting: string;
+  summary: string;
+  suggestedAction: string;
+  lastProject: {
+    id: string;
+    title: string;
+    updatedAt?: string;
+    nodeCount: number;
+    sourceCount: number;
+  } | null;
+  continueUrl: string | null;
+  projectCount: number;
 }
 
 export type Role = "admin" | "user";

@@ -29,6 +29,9 @@ export type IconName =
   | "play"
   | "link"
   | "chart"
+  | "sparkles"
+  | "leaf"
+  | "trend"
   | "settings"
   | "user"
   | "logout"
@@ -217,6 +220,24 @@ const paths: Record<IconName, JSX.Element> = {
       <path d="M16 19v-7" />
     </>
   ),
+  sparkles: (
+    <>
+      <path d="M12 3l1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2z" />
+      <path d="M5 14l.8 2.5L8 17l-2.2.7L5 20l-.8-2.3L2 17l2.2-.7z" />
+    </>
+  ),
+  leaf: (
+    <>
+      <path d="M11 20C6 16 4 10 4 6c4 0 8 2 11 6-1 4-2 6-4 8z" />
+      <path d="M11 20c4-4 6-8 7-14-4 1-7 3-10 7" />
+    </>
+  ),
+  trend: (
+    <>
+      <path d="M4 18h16" />
+      <path d="M6 16l4-6 3 3 5-8" />
+    </>
+  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3" />
@@ -348,6 +369,10 @@ export const NODE_ICON: Record<string, IconName> = {
   pivot: "pivot",
   validate: "validate",
   branch: "branch",
+  embed_text: "sparkles",
+  agri_classify: "leaf",
+  causal_analysis: "chart",
+  predict: "trend",
   sql: "sql",
   custom: "custom",
   output: "output",

@@ -9,6 +9,7 @@ const CATEGORY_ACCENT: Record<string, string> = {
   trigger: "#0D2C54",
   source: "#2A9D8F",
   transform: "#0D2C54",
+  intelligence: "#388E3C",
   output: "#388E3C",
 };
 

@@ -24,17 +24,22 @@ import ExportPanel from "../components/ExportPanel";
 import AutomationPanel from "../components/AutomationPanel";
 import { LogoMark } from "../components/brand/Logo";
 import Icon from "../components/icons/Icons";
+import HelpPanel, { HelpLinkButton, NodeHelpBanner } from "../components/HelpPanel";
 import WorkflowStepper from "../components/WorkflowStepper";
 import type { NormalizeOptions } from "../types";
 import PreviewPanel from "../components/PreviewPanel";
 import AIAssistant from "../components/AIAssistant";
+import AIConductor from "../components/AIConductor";
+import { useAI } from "../ai";
+import { applyConductorStep, initChain, type ChainState } from "../lib/applyConductorStep";
+import type { ConductorStep } from "../types";
 import PipeNode from "../components/PipeNode";
 import Spinner from "../components/ui/Spinner";
 import { SPEC_BY_KIND } from "../nodeCatalog";
 import { health, runPipeline } from "../api/pipeline";
 import { getProject, updateProject } from "../api/projects";
 import { ApiError } from "../lib/apiClient";
-import type { NodeKind, PipeNodeData, RunResult, TablePreview } from "../types";
+import type { AIStatus, NodeKind, PipeNodeData, RunResult, TablePreview } from "../types";
 
 const nodeTypes = { pipe: PipeNode };
 
@@ -60,7 +65,7 @@ function makeNode(kind: NodeKind, position: { x: number; y: number }, config?: a
   };
 }
 
-type Tab = "import" | "quality" | "config" | "preview" | "export" | "ai" | "automation";
+type Tab = "import" | "quality" | "config" | "preview" | "export" | "ai" | "automation" | "help";
 type SaveState = "idle" | "saving" | "saved" | "error";
 
 export interface EditorProps {
@@ -81,7 +86,14 @@ export function PipelineEditor({ projectId, initialTitle, initialNodes, initialE
   const [result, setResult] = useState<RunResult | null>(null);
   const [running, setRunning] = useState(false);
   const [tab, setTab] = useState<Tab>("import");
-  const [aiKey, setAiKey] = useState(false);
+  const [conductorOpen, setConductorOpen] = useState(false);
+  const [conductorMeta, setConductorMeta] = useState<{
+    columns: string[];
+    sourceLabel: string;
+    sourceNodeId: string;
+  } | null>(null);
+  const chainRef = useRef<ChainState>({ lastNodeId: null, sourceIds: [], depth: 0 });
+  const [aiStatus, setAiStatus] = useState<AIStatus | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [contextMenu, setContextMenu] = useState<{
@@ -95,7 +107,20 @@ export function PipelineEditor({ projectId, initialTitle, initialNodes, initialE
   const dirtyRef = useRef(false);
 
   useEffect(() => {
-    health().then((h) => setAiKey(h.aiKey)).catch(() => setAiKey(false));
+    health()
+      .then((h) =>
+        setAiStatus({
+          enabled: true,
+          hasKey: h.aiKey,
+          provider: h.aiProvider ?? (h.aiKey ? "openai" : "heuristic"),
+          model: h.aiModel ?? (h.aiKey ? "gpt-4o-mini" : "local"),
+          mode: (h.aiMode as AIStatus["mode"]) ?? (h.aiKey ? "cloud" : "local"),
+          hint: h.aiKey
+            ? "Assistant cloud actif."
+            : "Mode local sans clé API — ajoutez OPENAI_API_KEY dans backend/.env.",
+        }),
+      )
+      .catch(() => setAiStatus(null));
   }, []);
 
   // Autosave debounce : sauvegarde le graphe + titre après modification.
@@ -147,10 +172,15 @@ export function PipelineEditor({ projectId, initialTitle, initialNodes, initialE
     for (const p of parents) {
       const pv = previews[p];
       if (pv && pv.columns?.length) return pv.columns;
+      const parentNode = nodes.find((n) => n.id === p);
+      const cfgCols = parentNode?.data.config?.__columns;
+      if (Array.isArray(cfgCols) && cfgCols.length) return cfgCols as string[];
     }
     const own = previews[selectedNode.id];
-    return own?.columns ?? [];
-  }, [selectedNode, edges, previews]);
+    if (own?.columns?.length) return own.columns;
+    const cfgCols = selectedNode.data.config?.__columns;
+    return Array.isArray(cfgCols) ? (cfgCols as string[]) : [];
+  }, [selectedNode, edges, previews, nodes]);
 
   const onConnect = useCallback(
     (conn: Connection) => {
@@ -201,11 +231,33 @@ export function PipelineEditor({ projectId, initialTitle, initialNodes, initialE
       const pos = { x: 60 + sourceCount * 220, y: 80 + (sourceCount % 2) * 100 };
       const node = makeNode(result.kind, pos, result.config);
       node.data.label = result.label;
-      setNodes((nds) => [...nds, node]);
+      setNodes((nds) => {
+        const next = [...nds, node];
+        chainRef.current = initChain(next, node.id);
+        return next;
+      });
       setSelectedId(node.id);
-      setTab("quality");
+      const cols = (result.config.__columns as string[] | undefined) ?? [];
+      setConductorMeta({
+        columns: Array.isArray(cols) ? cols : [],
+        sourceLabel: result.label,
+        sourceNodeId: node.id,
+      });
+      setConductorOpen(true);
     },
     [sourceNodes.length, setNodes, markDirty],
+  );
+
+  const handleConductorStep = useCallback(
+    (step: ConductorStep) => {
+      markDirty();
+      const applied = applyConductorStep(step, nodes, edges, chainRef.current);
+      chainRef.current = applied.chain;
+      setNodes(applied.nodes);
+      setEdges(applied.edges);
+      if (applied.tab) setTab(applied.tab as Tab);
+    },
+    [markDirty, nodes, edges, setNodes, setEdges],
   );
 
   const handleApplyNormalize = useCallback(
@@ -308,16 +360,68 @@ export function PipelineEditor({ projectId, initialTitle, initialNodes, initialE
     setContextMenu(null);
   }, [contextMenu, deleteNodeById, deleteEdgeById]);
 
+  const aiColumns = useMemo(() => {
+    if (upstreamColumns.length) return upstreamColumns;
+    for (const n of nodes) {
+      if (String(n.data.kind).startsWith("source_")) {
+        const pv = previews[n.id];
+        if (pv?.columns?.length) return pv.columns;
+        const cfgCols = n.data.config?.__columns;
+        if (Array.isArray(cfgCols) && cfgCols.length) return cfgCols as string[];
+      }
+    }
+    for (const n of nodes) {
+      const pv = previews[n.id];
+      if (pv?.columns?.length) return pv.columns;
+    }
+    return [];
+  }, [upstreamColumns, nodes, previews]);
+
+  const { open: openAI, setEditorBridge, close: closeAI } = useAI();
+
   const applyAICode = useCallback(
-    (kind: "custom" | "sql", code: string) => {
+    (kind: "custom" | "sql", code: string, target: "new" | "inject" = "new") => {
       markDirty();
-      const node = makeNode(kind, { x: 400 + Math.random() * 150, y: 360 }, { [kind === "sql" ? "query" : "code"]: code });
+      const configKey = kind === "sql" ? "query" : "code";
+
+      if (target === "inject" && selectedId && selectedNode) {
+        const nodeKind = selectedNode.data.kind;
+        if ((kind === "sql" && nodeKind === "sql") || (kind === "custom" && nodeKind === "custom")) {
+          setNodes((nds) =>
+            nds.map((n) =>
+              n.id === selectedId
+                ? { ...n, data: { ...n.data, config: { ...n.data.config, [configKey]: code } } }
+                : n,
+            ),
+          );
+          setTab("config");
+          return;
+        }
+      }
+
+      const node = makeNode(
+        kind,
+        { x: 400 + Math.random() * 150, y: 360 },
+        { [configKey]: code },
+      );
       setNodes((nds) => [...nds, node]);
       setSelectedId(node.id);
       setTab("config");
     },
-    [setNodes, markDirty]
+    [setNodes, markDirty, selectedId, selectedNode],
   );
+
+  useEffect(() => {
+    setEditorBridge({
+      columns: aiColumns,
+      selectedNodeKind: selectedNode?.data.kind ?? null,
+      onApply: (kind, code, target) => {
+        applyAICode(kind, code, target);
+        closeAI();
+      },
+    });
+    return () => setEditorBridge(null);
+  }, [aiColumns, selectedNode, applyAICode, setEditorBridge, closeAI]);
 
   const handleNodesChange = useCallback(
     (changes: Parameters<typeof onNodesChange>[0]) => {
@@ -413,19 +517,22 @@ export function PipelineEditor({ projectId, initialTitle, initialNodes, initialE
               {runError}
             </span>
           )}
-          <span
-            className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium ${
-              aiKey
+          <button
+            type="button"
+            onClick={() => openAI({ mode: "pandas" })}
+            className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition hover:opacity-90 ${
+              aiStatus?.mode === "cloud"
                 ? "border-good/30 bg-good/10 text-good"
                 : "border-edge bg-muted text-slate-500"
             }`}
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${aiKey ? "bg-good" : "bg-slate-500"}`} />
-            Assistant {aiKey ? "OpenAI" : "local"}
-          </span>
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${aiStatus?.mode === "cloud" ? "bg-good" : "bg-slate-500"}`}
+            />
+            Assistant {aiStatus?.mode === "cloud" ? aiStatus.provider : "local"}
+          </button>
+          <HelpLinkButton onClick={() => setTab("help")} />
           <button
-            type="button"
-            onClick={() => setTab("import")}
             className="flex items-center gap-2 rounded-brand border border-brand-blue-pale bg-brand-blue-pale/50 px-4 py-2 text-sm font-semibold text-brand-blue transition hover:bg-brand-blue-pale"
           >
             <Icon name="import" size={16} />
@@ -546,7 +653,7 @@ export function PipelineEditor({ projectId, initialTitle, initialNodes, initialE
             sourceCount={sourceNodes.length}
           />
           <div className="flex border-b border-edge bg-muted/30">
-            {(["config", "preview", "automation", "ai"] as Tab[]).map((t) => (
+            {(["config", "preview", "automation", "ai", "help"] as Tab[]).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -561,11 +668,14 @@ export function PipelineEditor({ projectId, initialTitle, initialNodes, initialE
                     ? "Aperçu"
                     : t === "automation"
                       ? "Automation"
-                      : "IA"}
+                      : t === "help"
+                        ? "Aide"
+                        : "IA"}
               </button>
             ))}
           </div>
-          <div className="min-h-0 flex-1">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-hidden">
             {tab === "import" && (
               <SourceImportPanel onImported={handleSourceImported} sources={sourceNodes} />
             )}
@@ -575,8 +685,17 @@ export function PipelineEditor({ projectId, initialTitle, initialNodes, initialE
             {tab === "export" && (
               <ExportPanel nodes={nodes} edges={edges} hasOutput={hasOutputNode} />
             )}
+            {tab === "help" && (
+              <HelpPanel
+                compact
+                highlightNode={selectedNode?.data.kind}
+                initialSection={selectedNode ? "nodes" : "workflow"}
+              />
+            )}
             {tab === "config" && (
-              <ConfigPanel
+              <>
+                {selectedNode && <NodeHelpBanner kind={selectedNode.data.kind} />}
+                <ConfigPanel
                 node={selectedNode}
                 upstreamColumns={upstreamColumns}
                 onChange={updateConfig}
@@ -584,6 +703,7 @@ export function PipelineEditor({ projectId, initialTitle, initialNodes, initialE
                 onDelete={deleteNode}
                 onOpenImport={() => setTab("import")}
               />
+              </>
             )}
             {tab === "preview" && (
               <>
@@ -605,11 +725,55 @@ export function PipelineEditor({ projectId, initialTitle, initialNodes, initialE
               <p className="p-4 text-sm text-slate-500">Automation disponible dans un projet enregistré.</p>
             )}
             {tab === "ai" && (
-              <AIAssistant upstreamColumns={upstreamColumns} aiKey={aiKey} onApply={applyAICode} />
+              <AIAssistant
+                upstreamColumns={aiColumns}
+                aiStatus={aiStatus}
+                selectedNodeKind={selectedNode?.data.kind ?? null}
+                onApply={applyAICode}
+              />
+            )}
+            </div>
+            {tab !== "ai" && (
+              <div className="shrink-0 border-t border-edge px-3 py-2">
+                <button
+                type="button"
+                onClick={() => {
+                  const src = sourceNodes[sourceNodes.length - 1];
+                  if (src) {
+                    const cols = src.data.config?.__columns;
+                    setConductorMeta({
+                      columns: Array.isArray(cols) ? (cols as string[]) : [],
+                      sourceLabel: src.data.label,
+                      sourceNodeId: src.id,
+                    });
+                    chainRef.current = initChain(nodes, src.id);
+                    setConductorOpen(true);
+                  } else {
+                    openAI({ mode: "pandas", prompt: "Guider la construction de mon pipeline agricole" });
+                  }
+                }}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-brand-blue/30 bg-brand-blue/5 py-2 text-[11px] font-medium text-brand-blue transition hover:bg-brand-blue/10"
+              >
+                Conducteur IA — pipeline guidé
+              </button>
+              </div>
             )}
           </div>
         </aside>
       </div>
+
+      {conductorMeta && (
+        <AIConductor
+          open={conductorOpen}
+          onClose={() => setConductorOpen(false)}
+          columns={conductorMeta.columns}
+          sourceLabel={conductorMeta.sourceLabel}
+          projectId={demo ? undefined : projectId}
+          sourceNodeId={conductorMeta.sourceNodeId}
+          onStepAccepted={handleConductorStep}
+          onCompleted={() => setConductorOpen(false)}
+        />
+      )}
     </div>
   );
 }

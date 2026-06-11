@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listExecutions, getExecution } from "../api/executions";
 import type { PipelineRun } from "../types";
+import AIButton from "./AIButton";
 import Spinner from "./ui/Spinner";
 
 function formatDate(iso?: string | null) {
@@ -45,9 +46,12 @@ export default function ExecutionsPanel() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-bold text-slate-800">Historique d'exécution</h2>
-        <p className="text-sm text-slate-500">Suivi des jobs pipeline (Talend Job Monitor / n8n Executions)</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800">Historique d'exécution</h2>
+          <p className="text-sm text-slate-500">Suivi des jobs pipeline (Talend Job Monitor / n8n Executions)</p>
+        </div>
+        <AIButton variant="chip" label="Diagnostiquer avec l'IA" prompt="Mon pipeline ETL agricole échoue — aide-moi à diagnostiquer les erreurs courantes" />
       </div>
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
       {runs.length === 0 ? (

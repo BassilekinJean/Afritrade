@@ -13,6 +13,10 @@ import RenameProjectModal from "../components/RenameProjectModal";
 import ConfirmDeleteDialog from "../components/ConfirmDeleteDialog";
 import ExecutionsPanel from "../components/ExecutionsPanel";
 import ConnectionsPanel from "../components/ConnectionsPanel";
+import AnalyticsPanel from "../components/AnalyticsPanel";
+import HelpPanel from "../components/HelpPanel";
+import AIAssistant from "../components/AIAssistant";
+import AIButton from "../components/AIButton";
 import { BrandHeader } from "../components/brand/Logo";
 import Icon from "../components/icons/Icons";
 import ContextMenu from "../components/ui/ContextMenu";
@@ -272,12 +276,16 @@ export default function Projects() {
             <SidebarNavItem
               key={item.id}
               item={item}
-              active={activeNav === item.id}
+              active={activeNav === item.id || (item.children?.some((c) => c.id === activeNav) ?? false)}
               collapsed={sidebarCollapsed}
               expanded={expandedItems.includes(item.id)}
               onToggle={() => item.children && toggleNavItem(item.id)}
               onClick={() => {
                 setActiveNav(item.id);
+                setMobileSidebarOpen(false);
+              }}
+              onChildClick={(childId) => {
+                setActiveNav(childId);
                 setMobileSidebarOpen(false);
               }}
             />
@@ -409,6 +417,8 @@ export default function Projects() {
               {/* Spacer */}
               <div className="flex-1" />
 
+              <AIButton variant="ghost" label="Assistant IA" prompt="Aide-moi à préparer un pipeline ETL agricole" className="hidden sm:inline-flex" />
+
               {/* Create button (mobile) */}
               <button
                 onClick={() => setCreating(true)}
@@ -517,7 +527,27 @@ export default function Projects() {
           <div className="p-4 sm:p-6 space-y-6">
             {activeNav === "executions" && <ExecutionsPanel />}
             {activeNav === "connections" && <ConnectionsPanel />}
-            {activeNav !== "projects" && activeNav !== "executions" && activeNav !== "connections" && (
+            {activeNav === "analytics" && <AnalyticsPanel />}
+            {activeNav === "docs" && <HelpPanel initialSection="overview" />}
+            {activeNav === "help" && <HelpPanel initialSection="errors" />}
+            {(activeNav === "ai" || activeNav === "ai-sql" || activeNav === "ai-pandas") && (
+              <div className="overflow-hidden rounded-2xl border border-edge bg-white shadow-sm min-h-[560px]">
+                <AIAssistant
+                  standalone
+                  upstreamColumns={[]}
+                  initialMode={activeNav === "ai-sql" ? "sql" : "pandas"}
+                />
+              </div>
+            )}
+            {activeNav !== "projects" &&
+              activeNav !== "executions" &&
+              activeNav !== "connections" &&
+              activeNav !== "analytics" &&
+              activeNav !== "docs" &&
+              activeNav !== "help" &&
+              activeNav !== "ai" &&
+              activeNav !== "ai-sql" &&
+              activeNav !== "ai-pandas" && (
               <p className="rounded-xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
                 Section « {activeNav} » — à venir.
               </p>
@@ -795,6 +825,7 @@ function SidebarNavItem({
   expanded,
   onToggle,
   onClick,
+  onChildClick,
 }: {
   item: SidebarNavItem;
   active: boolean;
@@ -802,13 +833,17 @@ function SidebarNavItem({
   expanded?: boolean;
   onToggle?: () => void;
   onClick: () => void;
+  onChildClick?: (childId: string) => void;
 }) {
   const hasChildren = !!item.children;
 
   return (
     <div>
       <button
-        onClick={hasChildren ? onToggle : onClick}
+        onClick={() => {
+          if (hasChildren) onToggle?.();
+          onClick();
+        }}
         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-brand transition-all text-sm group ${
           active
             ? "bg-white/12 text-white font-semibold ring-1 ring-white/15"
@@ -845,7 +880,7 @@ function SidebarNavItem({
           {item.children!.map((child) => (
             <button
               key={child.id}
-              onClick={onClick}
+              onClick={() => (onChildClick ? onChildClick(child.id) : onClick())}
               className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
             >
               {child.icon}

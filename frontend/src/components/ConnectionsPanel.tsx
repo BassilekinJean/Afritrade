@@ -6,6 +6,7 @@ import {
   testConnection,
 } from "../api/connections";
 import type { Connection } from "../types";
+import AIButton from "./AIButton";
 import Button from "./ui/Button";
 import Input from "./ui/Input";
 import Spinner from "./ui/Spinner";
@@ -68,9 +69,12 @@ export default function ConnectionsPanel() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold text-slate-800">Connexions réutilisables</h2>
-        <p className="text-sm text-slate-500">Référentiel de connexions bases de données (Talend Connection Repository)</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800">Connexions réutilisables</h2>
+          <p className="text-sm text-slate-500">Référentiel de connexions bases de données (Talend Connection Repository)</p>
+        </div>
+        <AIButton variant="chip" label="Requête SQL" mode="sql" prompt="Requête SQL pour lire une table agricole depuis input" />
       </div>
 
       <form onSubmit={submit} className="rounded-xl border border-slate-200 bg-white p-4 space-y-3 max-w-lg">

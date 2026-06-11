@@ -23,8 +23,9 @@ import urllib.request
 from typing import Any, Dict, List, Optional
 
 
-SYSTEM_PROMPT = """Tu es un assistant expert en ingénierie de données pour le secteur bancaire.
-Tu génères du code de transformation de données propre, sûr et minimal.
+SYSTEM_PROMPT = """Tu es un assistant expert en ingénierie de données pour le secteur AGRICOLE (Aaprovidir).
+Tu génères du code de transformation de données propre, sûr et minimal pour pipelines agricoles :
+prix de marché, rendements, météo, coopératives, intrants, sécurité alimentaire.
 
 CONTRAINTES STRICTES — à respecter sans exception :
 - Génère UNIQUEMENT du code pandas (mode "pandas") OU une requête SQL (mode "sql").
@@ -126,6 +127,35 @@ def validate_generated_code(code: str, mode: str) -> None:
         _validate_sql(code)
     else:
         _validate_pandas(code)
+
+
+def get_ai_status() -> Dict[str, Any]:
+    """État du service IA pour le frontend."""
+    key = os.environ.get("OPENAI_API_KEY", "").strip()
+    base = _api_base_url()
+    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    if key:
+        provider = "openai"
+        if "openrouter.ai" in base:
+            provider = "openrouter"
+        elif "groq.com" in base:
+            provider = "groq"
+        return {
+            "enabled": True,
+            "provider": provider,
+            "model": model,
+            "hasKey": True,
+            "mode": "cloud",
+            "hint": "Assistant cloud actif. Décrivez votre transformation en français.",
+        }
+    return {
+        "enabled": True,
+        "provider": "heuristic",
+        "model": "local",
+        "hasKey": False,
+        "mode": "local",
+        "hint": "Mode local sans clé API. Ajoutez OPENAI_API_KEY dans backend/.env pour GPT.",
+    }
 
 
 def generate_transformation(
@@ -360,91 +390,150 @@ def _extract_number(text: str) -> Optional[float]:
 
 def _generate_heuristic(description: str, columns: List[str], mode: str) -> Dict[str, Any]:
     desc = description.lower()
-    amount_col = _guess_column(columns, "amount", "montant", "valeur", "value", "solde", "balance")
-    account_col = _guess_column(columns, "account", "compte", "iban", "card", "carte", "numero")
-    date_col = _guess_column(columns, "date", "time", "horodatage", "timestamp")
+    # Colonnes agricoles + legacy bancaire
+    amount_col = _guess_column(
+        columns,
+        "prix", "price", "montant", "valeur", "rendement", "yield", "tonnage",
+        "quantite", "quantity", "amount", "solde", "score",
+    )
+    category_col = _guess_column(
+        columns,
+        "culture", "crop", "produit", "product", "produits_echanges", "espece",
+        "variety", "variete", "commodity",
+    )
+    region_col = _guess_column(
+        columns, "region", "pays", "country", "zone", "localite", "ville", "market", "marche",
+    )
+    entity_col = _guess_column(
+        columns,
+        "entite", "entites", "entites_intervenantes", "cooperative", "coop", "producteur",
+        "account", "compte", "iban",
+    )
+    evolution_col = _guess_column(
+        columns, "evolution", "evolution_marche", "tendance", "impact", "statut",
+    )
+    date_col = _guess_column(columns, "date", "time", "jour", "mois", "annee", "timestamp", "saison")
+    message_col = _guess_column(columns, "message", "contenu", "description", "texte", "commentaire")
+    account_col = entity_col  # alias legacy
+
     snippets: List[str] = []
     explanations: List[str] = []
 
     if mode == "sql":
-        return _heuristic_sql(desc, columns, amount_col, account_col, date_col)
+        return _heuristic_sql(desc, columns, amount_col, entity_col, date_col, category_col, region_col)
 
-    # ---- pandas ----
-    if any(k in desc for k in ["doublon", "duplicate", "dédoublonn", "dedup", "unique"]):
+    # ---- pandas — règles agricoles ----
+    if any(k in desc for k in ["doublon", "duplicate", "dédoublonn", "dedup"]) or re.search(
+        r"\bunique(s)?\b", desc
+    ):
         snippets.append("df = df.drop_duplicates()")
         explanations.append("suppression des doublons")
 
-    if any(k in desc for k in ["masqu", "anonym", "mask", "rgpd", "cacher"]) and account_col:
-        snippets.append(
-            f"df['{account_col}'] = df['{account_col}'].astype(str).str.replace("
-            f"r'.(?=.{{4}})', '*', regex=True)"
-        )
-        explanations.append(f"masquage de la colonne « {account_col} » (4 derniers caractères visibles)")
-
-    if any(k in desc for k in ["supérieur", "superieur", "plus de", "au-dessus", "greater", "above", ">"]) and amount_col:
-        threshold = _extract_number(desc) or 10000
-        snippets.append(f"df = df[df['{amount_col}'] > {threshold}]")
-        explanations.append(f"filtrage des lignes où {amount_col} > {threshold}")
-    elif any(k in desc for k in ["inférieur", "inferieur", "moins de", "en dessous", "less", "below", "<"]) and amount_col:
-        threshold = _extract_number(desc) or 0
-        snippets.append(f"df = df[df['{amount_col}'] < {threshold}]")
-        explanations.append(f"filtrage des lignes où {amount_col} < {threshold}")
-
-    if any(k in desc for k in ["regroup", "group", "par ", "agréger", "agreger", "somme", "total", "sum"]) and amount_col:
-        group_col = _mentioned_column(desc, columns, exclude=amount_col) or account_col
-        if group_col:
-            snippets.append(
-                f"df = df.groupby('{group_col}', as_index=False)['{amount_col}'].sum()"
-            )
-            explanations.append(f"regroupement par « {group_col} » avec somme de {amount_col}")
-
-    if any(k in desc for k in ["négati", "negati", "debit", "débit"]) and amount_col:
-        snippets.append(f"df = df[df['{amount_col}'] < 0]")
-        explanations.append(f"conservation des montants négatifs ({amount_col})")
-
-    if any(k in desc for k in ["fraud", "anomal", "suspect", "outlier", "aberrant"]) and amount_col:
-        snippets.append(
-            f"_seuil = df['{amount_col}'].mean() + 3 * df['{amount_col}'].std()\n"
-            f"df['is_suspect'] = df['{amount_col}'] > _seuil"
-        )
-        explanations.append(f"marquage des montants suspects (> moyenne + 3σ sur {amount_col})")
-
-    if any(k in desc for k in ["date", "parse", "convert", "datetime"]) and date_col:
-        snippets.append(f"df['{date_col}'] = pd.to_datetime(df['{date_col}'], errors='coerce')")
-        explanations.append(f"conversion de « {date_col} » en datetime")
-
-    if any(k in desc for k in ["null", "manquant", "missing", "vide", "nettoy", "clean", "na"]):
+    if any(k in desc for k in ["vide", "null", "manquant", "missing", "na", "nettoy", "clean"]):
         snippets.append("df = df.dropna()")
         explanations.append("suppression des lignes avec valeurs manquantes")
 
-    if re.search(r"\b(euro|eur|dollar|usd|convertir|conversion|taux|devise)\b", desc) and amount_col:
-        rate = _extract_number(desc) or 1.0
-        snippets.append(f"df['{amount_col}_converted'] = df['{amount_col}'] * {rate}")
-        explanations.append(f"conversion de devise sur {amount_col} (taux {rate})")
+    # Filtrer par culture (maïs, riz…)
+    culture_match = re.search(r"\b(ma[iï]s|riz|manioc|cacao|caf[eé]|arachide|bl[eé])\b", desc)
+    if culture_match and category_col:
+        crop = culture_match.group(1).replace("é", "e").replace("ï", "i")
+        snippets.append(f"df = df[df['{category_col}'].astype(str).str.lower().str.contains('{crop}', na=False)]")
+        explanations.append(f"filtrage culture « {crop} » sur {category_col}")
 
-    if any(k in desc for k in ["majuscule", "upper", "uppercase"]):
+    if any(k in desc for k in ["négativ", "negativ", "negative", "baisse", "dégrad"]) and evolution_col:
         snippets.append(
-            "for _c in df.select_dtypes(include='object').columns:\n"
-            "    df[_c] = df[_c].astype(str).str.upper()"
+            f"df = df[df['{evolution_col}'].astype(str).str.contains('égatif|negatif|Negative', case=False, na=False)]"
         )
-        explanations.append("mise en majuscules des colonnes texte")
+        explanations.append(f"filtrage évolution négative ({evolution_col})")
+
+    if any(k in desc for k in ["supérieur", "superieur", "plus de", "au-dessus", "greater", "above", ">"]) and amount_col:
+        threshold = _extract_number(desc) or 100
+        snippets.append(f"df = df[pd.to_numeric(df['{amount_col}'], errors='coerce') > {threshold}]")
+        explanations.append(f"filtrage {amount_col} > {threshold}")
+
+    if any(k in desc for k in ["inférieur", "inferieur", "moins de", "en dessous", "less", "below", "<"]) and amount_col:
+        threshold = _extract_number(desc) or 0
+        snippets.append(f"df = df[pd.to_numeric(df['{amount_col}'], errors='coerce') < {threshold}]")
+        explanations.append(f"filtrage {amount_col} < {threshold}")
+
+    if any(k in desc for k in ["regroup", "group", "par ", "agréger", "agreger", "somme", "total", "sum", "moyenne", "mean"]) and amount_col:
+        group_col = (
+            _mentioned_column(desc, columns, exclude=amount_col)
+            or region_col
+            or category_col
+            or entity_col
+        )
+        if group_col:
+            agg = "mean" if any(k in desc for k in ["moyenne", "mean", "average"]) else "sum"
+            snippets.append(
+                f"df = df.groupby('{group_col}', as_index=False)['{amount_col}'].{agg}()"
+            )
+            explanations.append(f"regroupement par « {group_col} » ({agg} de {amount_col})")
+
+    if any(k in desc for k in ["compter", "count", "nombre"]) and (region_col or category_col):
+        group_col = region_col or category_col
+        snippets.append(f"df = df.groupby('{group_col}', as_index=False).size().rename(columns={{'size': 'nombre'}})")
+        explanations.append(f"comptage par {group_col}")
+
+    if any(k in desc for k in ["sélection", "selection", "select", "garder colonnes", "choisir colonnes"]):
+        mentioned = [c for c in columns if c.lower() in desc]
+        if mentioned:
+            snippets.append(f"df = df[{mentioned!r}]".replace("'", '"'))
+            explanations.append(f"sélection des colonnes {', '.join(mentioned)}")
+
+    if any(k in desc for k in ["renommer", "rename"]) and columns:
+        # ex: renommer prix en prix_kg
+        old = _mentioned_column(desc, columns)
+        new_match = re.search(r"en\s+(\w+)|vers\s+(\w+)|->\s*(\w+)", desc)
+        if old and new_match:
+            new_name = next(g for g in new_match.groups() if g)
+            snippets.append(f"df = df.rename(columns={{'{old}': '{new_name}'}})")
+            explanations.append(f"renommage {old} → {new_name}")
+
+    if any(k in desc for k in ["trier", "tri", "sort", "classer"]) and amount_col:
+        asc = any(k in desc for k in ["croissant", "asc", "ascending"])
+        snippets.append(f"df = df.sort_values('{amount_col}', ascending={str(asc).lower()})")
+        explanations.append(f"tri par {amount_col}")
+
+    if any(k in desc for k in ["date", "parse", "convert", "datetime"]) and date_col:
+        snippets.append(f"df['{date_col}'] = pd.to_datetime(df['{date_col}'], dayfirst=True, errors='coerce')")
+        explanations.append(f"conversion date « {date_col} »")
+
+    if any(k in desc for k in ["masqu", "anonym", "mask", "rgpd", "cacher"]) and entity_col:
+        snippets.append(
+            f"df['{entity_col}'] = df['{entity_col}'].astype(str).str.replace("
+            f"r'.(?=.{{4}})', '*', regex=True)"
+        )
+        explanations.append(f"masquage partiel « {entity_col} »")
+
+    if any(k in desc for k in ["fraud", "anomal", "suspect", "outlier", "aberrant"]) and amount_col:
+        snippets.append(
+            f"_seuil = pd.to_numeric(df['{amount_col}'], errors='coerce').mean() + "
+            f"3 * pd.to_numeric(df['{amount_col}'], errors='coerce').std()\n"
+            f"df['suspect'] = pd.to_numeric(df['{amount_col}'], errors='coerce') > _seuil"
+        )
+        explanations.append(f"détection valeurs aberrantes sur {amount_col}")
+
+    if any(k in desc for k in ["majuscule", "upper"]) and message_col:
+        snippets.append(f"df['{message_col}'] = df['{message_col}'].astype(str).str.upper()")
+        explanations.append(f"majuscules sur {message_col}")
 
     if not snippets:
-        # Repli générique : un squelette commenté à adapter.
         cols_repr = columns or ["colonne_1", "colonne_2"]
         snippets.append(
-            "# Transformation à adapter selon votre besoin.\n"
-            f"# Colonnes disponibles : {', '.join(cols_repr)}\n"
-            "df = df.copy()"
+            "# Exemple : filtrer puis agréger\n"
+            f"# Colonnes : {', '.join(cols_repr)}\n"
+            "df = df.copy()\n"
+            + (f"# df = df[df['{cols_repr[0]}'].notna()]" if cols_repr else "")
         )
         explanations.append(
-            "aucune règle automatique reconnue — squelette généré, précisez votre demande"
+            "précisez : filtrer culture, grouper par région, somme des prix, etc."
         )
 
-    code = "\n".join(snippets)
+    code = "\n".join(s for s in snippets if s)
     return {
         "code": code,
-        "explanation": "Heuristique : " + ", ".join(explanations) + ".",
+        "explanation": "Assistant local : " + ", ".join(explanations) + ".",
         "mode": mode,
     }
 
@@ -455,6 +544,8 @@ def _heuristic_sql(
     amount_col: Optional[str],
     account_col: Optional[str],
     date_col: Optional[str],
+    category_col: Optional[str] = None,
+    region_col: Optional[str] = None,
 ) -> Dict[str, Any]:
     where: List[str] = []
     select = "*"
@@ -471,15 +562,22 @@ def _heuristic_sql(
         where.append(f'"{amount_col}" < {threshold}')
         explanations.append(f"{amount_col} < {threshold}")
 
-    if any(k in desc for k in ["total", "somme", "sum", "agré", "agreg", "group"]) and amount_col:
-        group_col = account_col or (columns[0] if columns else "id")
-        select = f'"{group_col}", SUM("{amount_col}") AS total'
+    if any(k in desc for k in ["total", "somme", "sum", "agré", "agreg", "group", "moyenne", "mean"]) and amount_col:
+        group_col = region_col or category_col or account_col or (columns[0] if columns else "id")
+        agg_fn = "AVG" if any(k in desc for k in ["moyenne", "mean"]) else "SUM"
+        select = f'"{group_col}", {agg_fn}("{amount_col}") AS total'
         group = f' GROUP BY "{group_col}"'
-        explanations.append(f"somme de {amount_col} par {group_col}")
+        explanations.append(f"{agg_fn} de {amount_col} par {group_col}")
 
     if any(k in desc for k in ["trier", "tri", "order", "classer"]) and amount_col:
         order = f' ORDER BY "{amount_col}" DESC'
         explanations.append(f"tri décroissant par {amount_col}")
+
+    culture_match = re.search(r"\b(ma[iï]s|riz|manioc|cacao|caf[eé])\b", desc)
+    if culture_match and category_col:
+        crop = culture_match.group(1)
+        where.append(f'LOWER("{category_col}") LIKE \'%{crop.lower()}%\'')
+        explanations.append(f"culture {crop}")
 
     query = f"SELECT {select} FROM input"
     if where:

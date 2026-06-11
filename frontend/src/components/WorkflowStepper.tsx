@@ -1,9 +1,11 @@
+import AIButton from "./AIButton";
+
 type Step = "import" | "quality" | "export";
 
 const STEPS: { id: Step; num: number; label: string; desc: string }[] = [
-  { id: "import", num: 1, label: "Importer", desc: "Fichiers, liens, bases" },
-  { id: "quality", num: 2, label: "Qualité", desc: "Analyse & normalisation" },
-  { id: "export", num: 3, label: "Exporter", desc: "Format final" },
+  { id: "import", num: 1, label: "Importer", desc: "Fichier · URL · BDD" },
+  { id: "quality", num: 2, label: "Qualité", desc: "Profil & domaine agricole" },
+  { id: "export", num: 3, label: "Exporter", desc: "Télécharger le résultat" },
 ];
 
 interface Props {
@@ -15,9 +17,12 @@ interface Props {
 export default function WorkflowStepper({ active, onStep, sourceCount }: Props) {
   return (
     <div className="border-b border-edge bg-brand-cream px-3 py-3">
-      <p className="brand-kicker mb-2">
-        Parcours données {sourceCount > 0 && `· ${sourceCount} source${sourceCount > 1 ? "s" : ""}`}
-      </p>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="brand-kicker">
+          Parcours données {sourceCount > 0 && `· ${sourceCount} source${sourceCount > 1 ? "s" : ""}`}
+        </p>
+        <AIButton variant="chip" label="IA" prompt="Aider à construire mon pipeline agricole étape par étape" />
+      </div>
       <div className="flex gap-1.5">
         {STEPS.map((s) => {
           const isActive = active === s.id;

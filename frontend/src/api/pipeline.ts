@@ -24,7 +24,7 @@ export interface UploadOptions {
 export async function uploadSource(file: File, opts: UploadOptions = {}): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file);
-  if (opts.delimiter) form.append("delimiter", opts.delimiter);
+  if (opts.delimiter && opts.delimiter !== "auto") form.append("delimiter", opts.delimiter);
   if (opts.table) form.append("table", opts.table);
   if (opts.sheet) form.append("sheet", opts.sheet);
   return apiClient.upload<UploadResult>("/sources/upload", form);
@@ -82,8 +82,17 @@ export function generateCode(
   return apiClient.post<AIResponse>("/ai/generate", { description, columns, mode });
 }
 
-export function health(): Promise<{ status: string; aiKey: boolean }> {
-  return apiClient.get<{ status: string; aiKey: boolean }>("/health", false);
+export function health(): Promise<{
+  status: string;
+  aiKey: boolean;
+  aiProvider?: string;
+  aiModel?: string;
+  aiMode?: string;
+}> {
+  return apiClient.get<{ status: string; aiKey: boolean; aiProvider?: string; aiModel?: string; aiMode?: string }>(
+    "/health",
+    false,
+  );
 }
 
 export function getDbHint(): Promise<{ sqliteUrl: string; hint: string }> {

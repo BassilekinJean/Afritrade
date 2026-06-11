@@ -33,6 +33,14 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 import ai
+from ai.conductor import (
+    build_welcome,
+    create_session,
+    get_session_state,
+    respond_to_plan,
+    respond_to_step,
+    submit_intent,
+)
 import database
 from auth import CurrentUser, get_current_user
 from etl.kind_detect import SQLITE_B64_PREFIX, detect_kind_from_filename, encode_binary
@@ -41,6 +49,12 @@ from pipeline_service import run_pipeline_tracked
 from routers import admin as admin_router
 from routers import auth as auth_router
 from routers import automation as automation_router
+from schemas import (
+    ConductorIntentRequest,
+    ConductorPlanRequest,
+    ConductorStartRequest,
+    ConductorStepRequest,
+)
 from routers import connections as connections_router
 from routers import executions as executions_router
 from routers import projects as projects_router
@@ -190,10 +204,14 @@ class ExportRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 @app.get("/api/health")
 def health() -> Dict[str, Any]:
+    ai_status = ai.get_ai_status()
     return {
         "status": "ok",
         "datasets": len(DATASETS),
-        "aiKey": bool(os.environ.get("OPENAI_API_KEY")),
+        "aiKey": ai_status["hasKey"],
+        "aiProvider": ai_status["provider"],
+        "aiModel": ai_status["model"],
+        "aiMode": ai_status["mode"],
     }
 
 
@@ -368,6 +386,11 @@ def run_pipeline(
     return result
 
 
+@app.get("/api/ai/status")
+def ai_status_endpoint(_user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
+    return ai.get_ai_status()
+
+
 @app.post("/api/ai/generate")
 def ai_generate(
     req: AIRequest, current_user: CurrentUser = Depends(get_current_user)
@@ -381,6 +404,69 @@ def ai_generate(
         raise HTTPException(status_code=422, detail=f"Code généré rejeté : {exc}") from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Échec de la génération : {exc}") from exc
+
+
+@app.get("/api/ai/welcome")
+def ai_welcome(current_user: CurrentUser = Depends(get_current_user)) -> Dict[str, Any]:
+    return build_welcome(
+        current_user.id,
+        current_user.username,
+        getattr(current_user, "full_name", None),
+    )
+
+
+@app.post("/api/ai/conductor/start")
+def ai_conductor_start(
+    req: ConductorStartRequest, current_user: CurrentUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    return create_session(
+        current_user.id,
+        req.columns,
+        req.sourceLabel,
+        req.projectId,
+        req.sourceNodeId,
+    )
+
+
+@app.post("/api/ai/conductor/intent")
+def ai_conductor_intent(
+    req: ConductorIntentRequest, current_user: CurrentUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    try:
+        return submit_intent(req.sessionId, current_user.id, req.intent)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/ai/conductor/plan")
+def ai_conductor_plan(
+    req: ConductorPlanRequest, current_user: CurrentUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    try:
+        return respond_to_plan(req.sessionId, current_user.id, req.action, req.feedback)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/ai/conductor/step")
+def ai_conductor_step(
+    req: ConductorStepRequest, current_user: CurrentUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    try:
+        return respond_to_step(req.sessionId, current_user.id, req.action, req.feedback)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/ai/conductor/{session_id}")
+def ai_conductor_get(
+    session_id: str, current_user: CurrentUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    from ai.conductor import get_session
+
+    if not get_session(session_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Session conducteur introuvable.")
+    return get_session_state(session_id)
 
 
 @app.get("/api/etl/staging")
@@ -410,6 +496,126 @@ def etl_analyze(
             apply_normalize=req.applyNormalize,
             normalize_options=opts,
         )
+    except PipelineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class ClassifyRequest(BaseModel):
+    sources: List[SourceAnalyzeItem]
+
+
+class CausalPredictRequest(BaseModel):
+    sources: List[SourceAnalyzeItem]
+    targetColumn: str
+    featureColumns: Optional[List[str]] = None
+    timeColumn: Optional[str] = None
+    joinColumn: Optional[str] = None
+    mode: str = "causal"  # causal | predict | forecast
+    horizon: int = 5
+
+
+@app.post("/api/etl/classify")
+def etl_classify(
+    req: ClassifyRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Classification sémantique agricole (embeddings) de sources multiples."""
+    from etl.agri_classify import classify_sources_batch
+
+    try:
+        return classify_sources_batch(
+            [s.model_dump() for s in req.sources],
+            DATASETS,
+        )
+    except PipelineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/etl/intelligence")
+def etl_intelligence(
+    req: CausalPredictRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Analyse causale et prédiction sur sources multiples (thème agricole)."""
+    from etl.causal import multi_source_causal, analyze_causal
+    from etl.extract import EXTRACTORS
+    from etl.predict import forecast_timeseries, predict_regression
+    import pandas as pd
+
+    if not req.sources:
+        raise HTTPException(status_code=400, detail="Au moins une source requise.")
+    if not req.targetColumn.strip():
+        raise HTTPException(status_code=400, detail="targetColumn requis.")
+
+    try:
+        mode = (req.mode or "causal").lower()
+        if len(req.sources) > 1:
+            if mode == "causal":
+                return multi_source_causal(
+                    [s.model_dump() for s in req.sources],
+                    DATASETS,
+                    target_column=req.targetColumn,
+                    join_column=req.joinColumn,
+                )
+            # Fusion pour predict/forecast
+            from etl.causal import multi_source_causal as _msc
+            merged_report = _msc(
+                [s.model_dump() for s in req.sources],
+                DATASETS,
+                target_column=req.targetColumn,
+                join_column=req.joinColumn,
+            )
+            # Re-extraire merged df — refaire fusion simple
+            frames = []
+            for src in req.sources:
+                ntype = src.type
+                if ntype in EXTRACTORS:
+                    frames.append(EXTRACTORS[ntype](src.config, DATASETS))
+            if req.joinColumn and len(frames) > 1:
+                df = frames[0]
+                for other in frames[1:]:
+                    if req.joinColumn in df.columns and req.joinColumn in other.columns:
+                        df = df.merge(other, on=req.joinColumn, how="outer")
+                    else:
+                        df = pd.concat([df, other], ignore_index=True)
+            else:
+                df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        else:
+            src = req.sources[0]
+            if src.type not in EXTRACTORS:
+                raise PipelineError(f"Type inconnu : {src.type}")
+            df = EXTRACTORS[src.type](src.config, DATASETS)
+
+        if mode == "forecast":
+            if not req.timeColumn:
+                raise HTTPException(status_code=400, detail="timeColumn requis pour forecast.")
+            result = forecast_timeseries(df, req.timeColumn, req.targetColumn, horizon=req.horizon)
+            pred_df = result.pop("predictions")
+            result["preview"] = {
+                "columns": list(pred_df.columns),
+                "rows": pred_df.head(50).replace({pd.NA: None}).to_dict(orient="records"),
+                "rowCount": int(len(pred_df)),
+            }
+            return result
+
+        if mode == "predict":
+            result = predict_regression(df, req.targetColumn, req.featureColumns)
+            pred_df = result.pop("predictions")
+            result["preview"] = {
+                "columns": list(pred_df.columns),
+                "rows": pred_df.head(50).replace({pd.NA: None}).to_dict(orient="records"),
+                "rowCount": int(len(pred_df)),
+            }
+            return result
+
+        # causal single source
+        report = analyze_causal(
+            df,
+            target_column=req.targetColumn,
+            feature_columns=req.featureColumns,
+            time_column=req.timeColumn,
+        )
+        return report
     except PipelineError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
